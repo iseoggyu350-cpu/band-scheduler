@@ -1,0 +1,2120 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#4f46e5" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="합주시간표" />
+  <title>밴드 합주 시간표 앱 (1시간 단위 · GitHub 실시간 동기화)</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    body {
+      font-family: 'Inter', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #f8fafc;
+      color: #0f172a;
+      -webkit-tap-highlight-color: transparent;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .grid-cell {
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+      transition: background-color 0.12s ease, transform 0.08s ease, box-shadow 0.12s ease;
+    }
+    .grid-cell:active {
+      transform: scale(0.97);
+    }
+    .grid-cell.highlighted-block {
+      box-shadow: inset 0 0 0 2.5px #4f46e5;
+      z-index: 5;
+    }
+    .grid-cell.inspected-cell {
+      box-shadow: inset 0 0 0 2.5px #0f172a;
+      z-index: 6;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-900">
+  <!-- Header -->
+  <header class="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200">
+    <div class="max-w-7xl mx-auto px-3 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-2">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <div class="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+          </svg>
+        </div>
+        <div class="min-w-0">
+          <h1 class="text-base sm:text-lg font-bold tracking-tight text-slate-900 truncate">밴드 합주 시간표</h1>
+          <p class="text-xs text-slate-500 truncate">1시간 단위 · GitHub 실시간 동기화</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+        <!-- GitHub Live Sync Status & Trigger -->
+        <button id="btnOpenSyncModal" type="button" class="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium bg-emerald-50 border border-emerald-200 text-emerald-800 hover:bg-emerald-100 transition">
+          <span id="syncStatusDot" class="w-2 h-2 rounded-full bg-slate-400"></span>
+          <span id="syncStatusLabel">GitHub 동기화 연결</span>
+        </button>
+        <button id="btnSyncNow" type="button" class="hidden inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition" title="최신 시간표 불러오기">
+          <svg id="syncSpinnerIcon" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          <span class="hidden sm:inline">새로고침</span>
+        </button>
+        <button id="btnCopySummary" type="button" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 active:bg-indigo-800 transition shadow-sm">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+          </svg>
+          <span>결과 복사</span>
+        </button>
+        <button id="btnOpenShareModal" type="button" class="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+          </svg>
+          <span class="hidden md:inline">코드 공유/병합</span>
+          <span class="md:hidden">공유</span>
+        </button>
+        <button id="btnOpenResetModal" type="button" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium bg-white border border-slate-300 text-slate-600 hover:text-rose-600 hover:border-rose-300 hover:bg-rose-50 transition" title="시간표 초기화">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+          <span class="hidden md:inline">초기화</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4">
+    <!-- Sync Banner -->
+    <section id="syncInfoBanner" class="bg-indigo-50/80 border border-indigo-200 rounded-2xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-indigo-950">
+      <div class="flex items-center gap-2">
+        <span id="bannerDot" class="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
+        <span id="bannerText">현재 로컬 모드입니다. <strong>GitHub 동기화 연결</strong>에 저장소 전용 토큰을 1번 입력하고 친구 초대 링크를 공유하면 실시간으로 동기화됩니다.</span>
+      </div>
+      <div class="flex items-center gap-1.5 shrink-0">
+        <button id="btnCopyInviteLinkBanner" type="button" class="hidden px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition">
+          친구 초대 링크 복사
+        </button>
+        <button id="btnBannerSetup" type="button" class="px-2.5 py-1 rounded-lg bg-indigo-600 text-white font-semibold hover:bg-indigo-700 transition">
+          GitHub 연결 방법
+        </button>
+      </div>
+    </section>
+
+    <!-- Top Bar: Member Selection & Add Member -->
+    <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-3.5 sm:p-4">
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div class="flex items-center justify-between gap-2">
+          <div>
+            <h2 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+              <span>밴드 멤버</span>
+              <span id="memberCountBadge" class="px-2 py-0.5 text-xs font-semibold rounded-full bg-indigo-50 text-indigo-700">0명</span>
+            </h2>
+            <p class="text-xs text-slate-500 mt-0.5">본인 이름/파트를 눌러 가능 시간을 드래그로 칠하세요. 체크박스로 겹침 비교 인원을 고를 수 있습니다.</p>
+          </div>
+        </div>
+
+        <!-- Add member form -->
+        <form id="addMemberForm" class="flex flex-wrap sm:flex-nowrap items-center gap-2">
+          <input id="newMemberName" type="text" maxlength="16" placeholder="이름 입력 (예: 지수)" class="flex-1 sm:w-36 px-3 py-1.5 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+          <select id="newMemberPart" class="px-2.5 py-1.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <option value="보컬">🎤 보컬</option>
+            <option value="기타">🎸 기타</option>
+            <option value="베이스">🎸 베이스</option>
+            <option value="드럼">🥁 드럼</option>
+            <option value="건반">🎹 건반</option>
+            <option value="세션">🎵 기타/세션</option>
+          </select>
+          <button type="submit" class="px-3.5 py-1.5 rounded-lg text-sm font-semibold bg-slate-900 text-white hover:bg-slate-800 transition shrink-0">
+            + 추가
+          </button>
+        </form>
+      </div>
+
+      <!-- Member Chips -->
+      <div id="memberListContainer" class="mt-3 flex flex-wrap gap-2"></div>
+    </section>
+
+    <!-- Main 2-Column Workspace -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+      <!-- Left/Center: Timetable Panel -->
+      <section class="lg:col-span-8 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <!-- Toolbar -->
+        <div class="p-3 sm:p-4 border-b border-slate-200 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <!-- Mode Switcher -->
+            <div class="inline-flex rounded-xl bg-slate-100 p-1" role="tablist">
+              <button id="tabOverlap" type="button" role="tab" class="px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition">
+                겹치는 시간 보기
+              </button>
+              <button id="tabEdit" type="button" role="tab" class="px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition">
+                내 시간 입력
+              </button>
+            </div>
+
+            <!-- Time Range Controls (1-hour steps) -->
+            <div class="flex items-center gap-1.5 text-xs text-slate-600">
+              <label for="startHourSelect" class="font-medium">시간대:</label>
+              <select id="startHourSelect" class="px-2 py-1 rounded-lg border border-slate-300 bg-white text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"></select>
+              <span>~</span>
+              <select id="endHourSelect" class="px-2 py-1 rounded-lg border border-slate-300 bg-white text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"></select>
+            </div>
+          </div>
+
+          <!-- Context Bar (Changes by Mode) -->
+          <div id="modeContextBar" class="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs"></div>
+        </div>
+
+        <!-- Timetable Grid -->
+        <div class="p-2 sm:p-4 overflow-x-auto">
+          <div class="min-w-[420px]">
+            <!-- Day Header -->
+            <div class="grid grid-cols-8 gap-1 mb-1 text-center">
+              <div class="text-[11px] font-semibold text-slate-400 py-1.5">시간</div>
+              <div class="text-xs font-bold text-slate-700 py-1.5 bg-slate-50 rounded-lg">월</div>
+              <div class="text-xs font-bold text-slate-700 py-1.5 bg-slate-50 rounded-lg">화</div>
+              <div class="text-xs font-bold text-slate-700 py-1.5 bg-slate-50 rounded-lg">수</div>
+              <div class="text-xs font-bold text-slate-700 py-1.5 bg-slate-50 rounded-lg">목</div>
+              <div class="text-xs font-bold text-slate-700 py-1.5 bg-slate-50 rounded-lg">금</div>
+              <div class="text-xs font-bold text-indigo-600 py-1.5 bg-indigo-50/70 rounded-lg">토</div>
+              <div class="text-xs font-bold text-rose-600 py-1.5 bg-rose-50/70 rounded-lg">일</div>
+            </div>
+            <!-- Hour Rows -->
+            <div id="timetableGrid" class="space-y-1"></div>
+          </div>
+        </div>
+
+        <!-- Legend Footer -->
+        <div id="legendFooter" class="px-4 py-2.5 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600"></div>
+      </section>
+
+      <!-- Right: Recommendations & Inspector -->
+      <aside class="lg:col-span-4 space-y-4">
+        <!-- Slot Inspector Card -->
+        <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+          <div class="flex items-center justify-between mb-2.5">
+            <h2 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+              <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>시간대 상세 확인</span>
+            </h2>
+            <span id="inspectorBadge" class="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">칸을 클릭하세요</span>
+          </div>
+          <div id="slotInspectorBody" class="text-xs text-slate-500">
+            시간표의 원하는 1시간 칸을 클릭하거나 마우스를 올리면 가능한 멤버와 불가능한 멤버를 바로 확인할 수 있습니다.
+          </div>
+        </section>
+
+        <!-- Recommended Overlapping Rehearsal Times -->
+        <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+          <div class="flex items-center justify-between gap-2 mb-3">
+            <h2 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+              <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>추천 합주 시간</span>
+            </h2>
+            <div class="flex items-center gap-1 text-xs">
+              <label for="minMembersFilter" class="text-slate-500">최소</label>
+              <select id="minMembersFilter" class="px-2 py-0.5 rounded-md border border-slate-300 bg-white text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500"></select>
+            </div>
+          </div>
+
+          <div id="recommendationList" class="space-y-2 max-h-[420px] overflow-y-auto pr-1"></div>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+  <!-- GitHub Realtime Sync Modal -->
+  <div id="syncModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="w-7 h-7 rounded-lg bg-slate-900 text-white flex items-center justify-center font-bold text-xs">GH</span>
+          <h3 class="text-base font-bold text-slate-900">GitHub 전용 실시간 동기화 (무료)</h3>
+        </div>
+        <button id="btnCloseSyncModal" type="button" class="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+
+      <!-- Modal Tabs -->
+      <div class="px-5 pt-3 bg-slate-50 border-b border-slate-200 flex gap-2">
+        <button id="syncTabConfig" type="button" class="px-3.5 py-2 text-xs font-bold border-b-2 border-indigo-600 text-indigo-700">1. GitHub 연결 &amp; 친구 초대</button>
+        <button id="syncTabGuide" type="button" class="px-3.5 py-2 text-xs font-semibold border-b-2 border-transparent text-slate-500 hover:text-slate-800">2. 토큰 발급 방법 (1분)</button>
+      </div>
+
+      <div class="p-5 overflow-y-auto space-y-4 text-xs">
+        <!-- Tab 1: Config -->
+        <div id="syncPanelConfig" class="space-y-4">
+          <p class="text-slate-600 leading-relaxed">
+            다른 서비스 가입 없이 <strong>GitHub 저장소의 <code class="px-1 py-0.5 bg-slate-100 rounded font-mono">data</code> 브랜치</strong>에 시간표를 자동 저장합니다. 본인만 여기서 한 번 연결한 뒤 <strong>친구 초대 링크 복사</strong>를 카톡에 보내면, 친구는 아무 설정 없이 바로 입력하고 서로 실시간으로 볼 수 있습니다.
+          </p>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="space-y-1.5">
+              <label for="githubRepoInput" class="block font-semibold text-slate-800">GitHub 저장소 (아이디/저장소명)</label>
+              <input id="githubRepoInput" type="text" placeholder="username/band-scheduler" class="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div class="space-y-1.5">
+              <label for="githubTokenInput" class="block font-semibold text-slate-800">이 저장소 전용 토큰 (Fine-grained Token)</label>
+              <input id="githubTokenInput" type="password" placeholder="github_pat_..." class="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between flex-wrap gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
+            <label class="inline-flex items-center gap-2 cursor-pointer text-slate-700 font-medium">
+              <input id="autoSyncCheckbox" type="checkbox" class="w-4 h-4 rounded accent-indigo-600" checked />
+              <span>4초마다 자동 동기화 (친구 입력 자동 반영)</span>
+            </label>
+            <span id="modalSyncStatus" class="text-[11px] font-semibold text-slate-500">상태: 미연동</span>
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            <button id="btnSaveAndConnect" type="button" class="px-4 py-2 rounded-lg font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition">
+              연결하고 불러오기
+            </button>
+            <button id="btnPushAllToDb" type="button" class="px-3.5 py-2 rounded-lg font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition">
+              현재 화면 데이터를 GitHub에 올리기
+            </button>
+            <button id="btnCopyInviteLinkModal" type="button" class="hidden px-3.5 py-2 rounded-lg font-semibold bg-slate-900 text-white hover:bg-slate-800 transition">
+              친구 초대 링크 복사
+            </button>
+            <button id="btnDisconnectDb" type="button" class="px-3 py-2 rounded-lg font-medium bg-white border border-slate-300 text-slate-600 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-300 transition">
+              연동 해제
+            </button>
+          </div>
+
+          <div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 space-y-1">
+            <div class="font-bold">🔒 안전 안내</div>
+            <p class="leading-relaxed text-amber-800">
+              친구 초대 링크에는 이 저장소 전용 토큰이 포함됩니다. <strong>신뢰하는 밴드 친구들 단톡방에만 공유</strong>해 주세요. (토큰 권한을 이 저장소 1개로만 제한하면 다른 저장소에는 전혀 접근할 수 없습니다.)
+            </p>
+          </div>
+        </div>
+
+        <!-- Tab 2: Token Guide -->
+        <div id="syncPanelGuide" class="hidden space-y-3">
+          <ol class="list-decimal list-inside space-y-2.5 text-slate-700 bg-slate-50 p-4 rounded-xl border border-slate-200 leading-relaxed">
+            <li>GitHub 로그인 후 <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener" class="text-indigo-600 font-bold underline">Fine-grained Token 발급 페이지</a>로 이동합니다.</li>
+            <li><strong>Token name</strong>: <code class="font-mono bg-white px-1 rounded">band-scheduler</code> 입력 / <strong>Expiration</strong>: 원하는 기간(예: 1년) 선택.</li>
+            <li><strong>Repository access</strong>에서 <strong>Only select repositories</strong> 선택 → <code class="font-mono bg-white px-1 rounded">band-scheduler</code> 저장소 1개만 체크.</li>
+            <li>아래 <strong>Permissions &gt; Repository permissions</strong>에서 <strong>Contents</strong> 항목을 <strong>Read and write</strong>로 변경.</li>
+            <li>맨 아래 <strong>Generate token</strong> 클릭 → 생성된 <code class="font-mono bg-white px-1 rounded">github_pat_...</code> 토큰을 복사해서 1번 탭에 붙여넣고 <strong>연결하고 불러오기</strong> 클릭!</li>
+            <li>연결되면 <strong>친구 초대 링크 복사</strong> 버튼을 눌러 친구에게 보내세요. 친구는 링크만 누르면 끝입니다!</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Share / Merge Modal -->
+  <div id="shareModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full p-5 space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-base font-bold text-slate-900">시간표 코드 공유 / 불러오기</h3>
+        <button id="btnCloseShareModal" type="button" class="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+      <p class="text-xs text-slate-600 leading-relaxed">
+        동기화 연결 없이도 현재 시간표 데이터를 코드로 복사해 친구들에게 보내거나, 친구가 보낸 코드를 붙여넣어 덮어쓰기 또는 병합할 수 있습니다.
+      </p>
+      <div class="space-y-1.5">
+        <div class="flex items-center justify-between">
+          <label for="shareCodeTextarea" class="text-xs font-semibold text-slate-700">공유 코드 (JSON)</label>
+          <button id="btnCopyShareCode" type="button" class="text-xs font-semibold text-indigo-600 hover:text-indigo-800">코드 복사하기</button>
+        </div>
+        <textarea id="shareCodeTextarea" rows="5" class="w-full p-2.5 text-xs font-mono rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+      </div>
+      <div class="flex flex-wrap justify-end gap-2 pt-1">
+        <button id="btnMergeShareCode" type="button" class="px-3.5 py-2 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition">
+          기존 멤버에 병합하기
+        </button>
+        <button id="btnImportShareCode" type="button" class="px-3.5 py-2 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition">
+          이 코드로 불러오기
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reset Confirmation Modal -->
+  <div id="resetModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-5 space-y-4">
+      <h3 class="text-base font-bold text-slate-900">시간표 초기화</h3>
+      <p class="text-xs text-slate-600 leading-relaxed">
+        원하는 초기화 방식을 선택하세요. 멤버 목록은 유지한 채 시간만 비우거나, 처음 예시 상태로 되돌릴 수 있습니다.
+      </p>
+      <div class="flex flex-col gap-2">
+        <button id="btnClearAllSlots" type="button" class="w-full px-3.5 py-2 rounded-lg text-xs font-semibold bg-rose-600 text-white hover:bg-rose-700 transition">
+          모든 멤버의 선택 시간만 비우기
+        </button>
+        <button id="btnLoadSampleData" type="button" class="w-full px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-800 hover:bg-slate-200 transition">
+          기본 예시 데이터로 되돌리기
+        </button>
+        <button id="btnCancelReset" type="button" class="w-full px-3.5 py-2 rounded-lg text-xs font-medium text-slate-500 hover:bg-slate-50 transition">
+          취소
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rename Member Modal -->
+  <div id="renameModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 p-4">
+    <form id="renameForm" class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-5 space-y-4">
+      <h3 class="text-base font-bold text-slate-900">멤버 정보 수정</h3>
+      <div class="space-y-3">
+        <div>
+          <label for="renameInput" class="block text-xs font-semibold text-slate-700 mb-1">이름</label>
+          <input id="renameInput" type="text" maxlength="16" required class="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+        <div>
+          <label for="renamePartSelect" class="block text-xs font-semibold text-slate-700 mb-1">파트</label>
+          <select id="renamePartSelect" class="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <option value="보컬">🎤 보컬</option>
+            <option value="기타">🎸 기타</option>
+            <option value="베이스">🎸 베이스</option>
+            <option value="드럼">🥁 드럼</option>
+            <option value="건반">🎹 건반</option>
+            <option value="세션">🎵 기타/세션</option>
+          </select>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2">
+        <button id="btnCancelRename" type="button" class="px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100">취소</button>
+        <button type="submit" class="px-4 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700">저장</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 pointer-events-none opacity-0 transition-opacity duration-200">
+    <div id="toastMessage" class="px-4 py-2.5 rounded-xl bg-slate-900 text-white text-xs sm:text-sm font-medium shadow-lg"></div>
+  </div>
+
+  <script>
+    (function () {
+      // =========================================================================
+      // [GitHub Pages 자동 감지 + 기본 저장소 설정]
+      // GitHub Pages(https://아이디.github.io/저장소명/)에 올리면 저장소가 자동 감지됩니다.
+      // =========================================================================
+      const DEFAULT_GITHUB_REPO = 'iseoggyu350-cpu/band-scheduler';
+      const DATA_BRANCH = 'data';
+      const DATA_FILE_PATH = 'schedule.json';
+
+      const STORAGE_KEY = 'band_rehearsal_scheduler_v1';
+      const SYNC_CONFIG_KEY = 'band_rehearsal_github_v1';
+      const DAYS = ['월', '화', '수', '목', '금', '토', '일'];
+      const PART_ICONS = {
+        '보컬': '🎤',
+        '기타': '🎸',
+        '베이스': '🎸',
+        '드럼': '🥁',
+        '건반': '🎹',
+        '세션': '🎵'
+      };
+      const MEMBER_COLORS = [
+        { bg: '#eef2ff', text: '#3730a3', border: '#c7d2fe', dot: '#4f46e5' },
+        { bg: '#ecfdf5', text: '#065f46', border: '#a7f3d0', dot: '#10b981' },
+        { bg: '#fffbeb', text: '#92400e', border: '#fde68a', dot: '#f59e0b' },
+        { bg: '#fff1f2', text: '#9f1239', border: '#fecdd3', dot: '#f43f5e' },
+        { bg: '#f0f9ff', text: '#075985', border: '#bae6fd', dot: '#0ea5e9' },
+        { bg: '#faf5ff', text: '#6b21a8', border: '#e9d5ff', dot: '#a855f7' },
+        { bg: '#f0fdfa', text: '#115e59', border: '#99f6e4', dot: '#14b8a6' },
+        { bg: '#fef2f2', text: '#991b1b', border: '#fecaca', dot: '#ef4444' }
+      ];
+
+      function utf8ToBase64(str) {
+        const bytes = new TextEncoder().encode(str);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
+      }
+
+      function base64ToUtf8(b64) {
+        const binary = atob(String(b64 || '').replace(/\s/g, ''));
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        return new TextDecoder().decode(bytes);
+      }
+
+      function inferRepoFromLocation() {
+        try {
+          const host = window.location.hostname || '';
+          if (host.endsWith('.github.io')) {
+            const owner = host.slice(0, -'.github.io'.length);
+            const parts = window.location.pathname.split('/').filter(Boolean);
+            if (owner && parts.length > 0) {
+              return `${owner}/${parts[0]}`;
+            }
+          }
+        } catch (e) {}
+        return '';
+      }
+
+      function normalizeRepo(repo) {
+        const clean = String(repo || '').trim()
+          .replace(/^https?:\/\/github\.com\//i, '')
+          .replace(/\.git$/i, '')
+          .replace(/^\/+|\/+$/g, '');
+        const parts = clean.split('/').filter(Boolean);
+        if (parts.length >= 2) {
+          return `${parts[0]}/${parts[1]}`;
+        }
+        return clean;
+      }
+
+      function isValidRepo(repo) {
+        return /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(normalizeRepo(repo));
+      }
+
+      function isConnectedConfig(cfg) {
+        return isValidRepo(cfg.repo) && String(cfg.token || '').trim().length >= 10;
+      }
+
+      function createDefaultState() {
+        return {
+          mode: 'overlap',
+          startHour: 9,
+          endHour: 23,
+          activeMemberId: 'm1',
+          minMembers: 0,
+          inspectedSlot: '2-19',
+          highlightedSlots: [],
+          members: [
+            {
+              id: 'm1',
+              name: '보컬',
+              part: '보컬',
+              colorIdx: 0,
+              included: true,
+              slots: ['0-18', '0-19', '0-20', '2-18', '2-19', '2-20', '2-21', '4-19', '4-20', '5-14', '5-15', '5-16', '5-17']
+            },
+            {
+              id: 'm2',
+              name: '기타',
+              part: '기타',
+              colorIdx: 1,
+              included: true,
+              slots: ['0-19', '0-20', '1-18', '1-19', '2-19', '2-20', '2-21', '4-18', '4-19', '5-14', '5-15', '5-16']
+            },
+            {
+              id: 'm3',
+              name: '베이스',
+              part: '베이스',
+              colorIdx: 2,
+              included: true,
+              slots: ['0-19', '0-20', '0-21', '2-19', '2-20', '2-21', '3-18', '3-19', '4-19', '4-20', '5-14', '5-15', '5-16', '6-15', '6-16']
+            },
+            {
+              id: 'm4',
+              name: '드럼',
+              part: '드럼',
+              colorIdx: 3,
+              included: true,
+              slots: ['1-19', '1-20', '2-19', '2-20', '2-21', '4-19', '4-20', '5-14', '5-15', '5-16', '5-17', '6-15', '6-16']
+            },
+            {
+              id: 'm5',
+              name: '건반',
+              part: '건반',
+              colorIdx: 4,
+              included: true,
+              slots: ['0-19', '0-20', '2-19', '2-20', '4-19', '4-20', '5-15', '5-16', '5-17']
+            }
+          ]
+        };
+      }
+
+      let state = loadState();
+      let syncConfig = loadSyncConfig();
+      let isDragging = false;
+      let dragPaintValue = true;
+      let renameTargetId = null;
+      let toastTimer = null;
+      let autoSyncTimer = null;
+      let pushDebounceTimer = null;
+      let isSyncing = false;
+      let writeQueue = Promise.resolve();
+      let pendingWriteCount = 0;
+      let localEditSeq = 0;
+      let lastRemoteSha = null;
+      let lastSyncTime = null;
+      let lastSyncError = null;
+      let joinedViaInviteLink = false;
+
+      function loadSyncConfig() {
+        let fromHash = null;
+        try {
+          const hash = window.location.hash || '';
+          const match = hash.match(/[#&]gh=([^&]+)/);
+          if (match && match[1]) {
+            const decoded = JSON.parse(base64ToUtf8(decodeURIComponent(match[1])));
+            if (decoded && decoded.token) {
+              fromHash = {
+                repo: normalizeRepo(decoded.repo || ''),
+                token: String(decoded.token || '').trim()
+              };
+              // Remove token from address bar immediately for safety
+              try {
+                history.replaceState(null, '', window.location.pathname + window.location.search);
+              } catch (e) {}
+            }
+          }
+        } catch (e) {}
+
+        let saved = { repo: '', token: '', autoSync: true };
+        try {
+          const raw = localStorage.getItem(SYNC_CONFIG_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') {
+              saved.repo = normalizeRepo(parsed.repo || '');
+              saved.token = String(parsed.token || '').trim();
+              saved.autoSync = parsed.autoSync !== false;
+            }
+          }
+        } catch (e) {}
+
+        const inferred = inferRepoFromLocation();
+        const resolved = {
+          repo: (fromHash && fromHash.repo) || saved.repo || inferred || normalizeRepo(DEFAULT_GITHUB_REPO),
+          token: (fromHash && fromHash.token) || saved.token || '',
+          autoSync: saved.autoSync
+        };
+
+        if (fromHash && isConnectedConfig(resolved)) {
+          joinedViaInviteLink = true;
+          try {
+            localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(resolved));
+          } catch (e) {}
+        }
+
+        return resolved;
+      }
+
+      function saveSyncConfig() {
+        try {
+          localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(syncConfig));
+        } catch (e) {}
+      }
+
+      function getInviteUrl() {
+        if (!isConnectedConfig(syncConfig)) return '';
+        const payload = utf8ToBase64(JSON.stringify({
+          repo: syncConfig.repo,
+          token: syncConfig.token
+        }));
+        const base = window.location.origin + window.location.pathname;
+        return `${base}#gh=${encodeURIComponent(payload)}`;
+      }
+
+      function loadState() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && Array.isArray(parsed.members) && parsed.members.length > 0) {
+              return {
+                mode: parsed.mode === 'edit' ? 'edit' : 'overlap',
+                startHour: typeof parsed.startHour === 'number' ? parsed.startHour : 9,
+                endHour: typeof parsed.endHour === 'number' ? parsed.endHour : 23,
+                activeMemberId: parsed.activeMemberId || parsed.members[0].id,
+                minMembers: typeof parsed.minMembers === 'number' ? parsed.minMembers : 0,
+                inspectedSlot: parsed.inspectedSlot || null,
+                highlightedSlots: [],
+                members: parsed.members.map((m, idx) => ({
+                  id: String(m.id || ('m_' + idx + '_' + Date.now())),
+                  name: String(m.name || '멤버'),
+                  part: PART_ICONS[m.part] ? m.part : '세션',
+                  colorIdx: typeof m.colorIdx === 'number' ? m.colorIdx % MEMBER_COLORS.length : idx % MEMBER_COLORS.length,
+                  included: m.included !== false,
+                  slots: Array.isArray(m.slots) ? Array.from(new Set(m.slots)) : []
+                }))
+              };
+            }
+          }
+        } catch (e) {}
+        return createDefaultState();
+      }
+
+      function saveState() {
+        try {
+          const toSave = {
+            mode: state.mode,
+            startHour: state.startHour,
+            endHour: state.endHour,
+            activeMemberId: state.activeMemberId,
+            minMembers: state.minMembers,
+            inspectedSlot: state.inspectedSlot,
+            members: state.members
+          };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+        } catch (e) {}
+      }
+
+      // --- GitHub API Sync Functions ---
+      function ghHeaders(withAuth) {
+        const headers = {
+          'Accept': 'application/vnd.github+json'
+        };
+        if (withAuth && syncConfig.token) {
+          headers['Authorization'] = `Bearer ${syncConfig.token}`;
+        }
+        return headers;
+      }
+
+      function updateSyncUI() {
+        const dot = document.getElementById('syncStatusDot');
+        const label = document.getElementById('syncStatusLabel');
+        const btnNow = document.getElementById('btnSyncNow');
+        const spinner = document.getElementById('syncSpinnerIcon');
+        const bannerDot = document.getElementById('bannerDot');
+        const bannerText = document.getElementById('bannerText');
+        const btnBanner = document.getElementById('btnBannerSetup');
+        const btnInviteBanner = document.getElementById('btnCopyInviteLinkBanner');
+        const btnInviteModal = document.getElementById('btnCopyInviteLinkModal');
+        const modalStatus = document.getElementById('modalSyncStatus');
+
+        const connected = isConnectedConfig(syncConfig);
+        const canShareLink = connected && /^https?:$/i.test(window.location.protocol);
+
+        if (canShareLink) {
+          btnInviteBanner.classList.remove('hidden');
+          btnInviteModal.classList.remove('hidden');
+        } else {
+          btnInviteBanner.classList.add('hidden');
+          btnInviteModal.classList.add('hidden');
+        }
+
+        if (!connected) {
+          dot.className = 'w-2 h-2 rounded-full bg-slate-400';
+          label.textContent = 'GitHub 동기화 연결';
+          btnNow.classList.add('hidden');
+          bannerDot.className = 'w-2 h-2 rounded-full bg-amber-500 shrink-0';
+          bannerText.innerHTML = '현재 로컬 모드입니다. <strong>GitHub 동기화 연결</strong>에 저장소 전용 토큰을 1번 입력하고 친구 초대 링크를 공유하면 실시간 동기화됩니다.';
+          btnBanner.textContent = 'GitHub 연결 방법';
+          modalStatus.textContent = '상태: 미연동';
+          modalStatus.className = 'text-[11px] font-semibold text-slate-500';
+          return;
+        }
+
+        btnNow.classList.remove('hidden');
+        if (isSyncing || pendingWriteCount > 0) {
+          dot.className = 'w-2 h-2 rounded-full bg-amber-500 animate-pulse';
+          label.textContent = '동기화 중...';
+          spinner.classList.add('animate-spin');
+        } else if (lastSyncError) {
+          dot.className = 'w-2 h-2 rounded-full bg-rose-500';
+          label.textContent = '연결 오류';
+          spinner.classList.remove('animate-spin');
+          bannerDot.className = 'w-2 h-2 rounded-full bg-rose-500 shrink-0';
+          bannerText.textContent = `GitHub 동기화 실패 (${lastSyncError}) — 변경사항은 로컬에 저장되었습니다.`;
+          btnBanner.textContent = '설정 확인';
+          modalStatus.textContent = `오류: ${lastSyncError}`;
+          modalStatus.className = 'text-[11px] font-semibold text-rose-600';
+        } else {
+          dot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+          label.textContent = 'GitHub 연동됨';
+          spinner.classList.remove('animate-spin');
+          const timeStr = lastSyncTime ? lastSyncTime.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+          bannerDot.className = 'w-2 h-2 rounded-full bg-emerald-500 shrink-0';
+          bannerText.innerHTML = `GitHub 실시간 동기화 중${timeStr ? ` (최근 동기화: <strong>${timeStr}</strong>)` : ''}. 친구가 입력한 시간이 자동으로 반영됩니다.`;
+          btnBanner.textContent = '연동 관리';
+          modalStatus.textContent = timeStr ? `연동됨 (${timeStr})` : '연동됨';
+          modalStatus.className = 'text-[11px] font-semibold text-emerald-700';
+        }
+      }
+
+      function applyRemoteMembersMap(remoteObj) {
+        if (!remoteObj || typeof remoteObj !== 'object') return;
+        const includedMap = {};
+        state.members.forEach(m => { includedMap[m.id] = m.included; });
+
+        const list = Object.keys(remoteObj)
+          .map((key, idx) => {
+            const m = remoteObj[key];
+            if (!m || typeof m !== 'object') return null;
+            return {
+              id: String(m.id || key),
+              name: String(m.name || '멤버'),
+              part: PART_ICONS[m.part] ? m.part : '세션',
+              colorIdx: typeof m.colorIdx === 'number' ? m.colorIdx % MEMBER_COLORS.length : idx % MEMBER_COLORS.length,
+              order: typeof m.order === 'number' ? m.order : idx,
+              included: includedMap[m.id || key] !== undefined ? includedMap[m.id || key] : true,
+              slots: Array.isArray(m.slots) ? Array.from(new Set(m.slots)) : []
+            };
+          })
+          .filter(Boolean)
+          .sort((a, b) => a.order - b.order);
+
+        if (list.length === 0) return;
+
+        state.members = list;
+        if (!state.members.some(m => m.id === state.activeMemberId)) {
+          state.activeMemberId = state.members[0].id;
+        }
+        saveState();
+        renderAll();
+      }
+
+      async function readScheduleFileFromGitHub(withAuth) {
+        const url = `https://api.github.com/repos/${syncConfig.repo}/contents/${DATA_FILE_PATH}?ref=${DATA_BRANCH}&t=${Date.now()}`;
+        const res = await fetch(url, {
+          method: 'GET',
+          headers: ghHeaders(withAuth),
+          cache: 'no-store'
+        });
+        if (res.status === 404) {
+          return { exists: false, sha: null, members: null };
+        }
+        if (res.status === 401 || res.status === 403) {
+          throw new Error('토큰 권한 오류 (HTTP ' + res.status + ')');
+        }
+        if (!res.ok) {
+          throw new Error('HTTP ' + res.status);
+        }
+        const json = await res.json();
+        const rawText = base64ToUtf8(json.content || '');
+        const parsed = JSON.parse(rawText || '{}');
+        const members = parsed && parsed.members && typeof parsed.members === 'object' ? parsed.members : parsed;
+        return { exists: true, sha: json.sha, members };
+      }
+
+      async function ensureDataBranchExists() {
+        const checkRes = await fetch(`https://api.github.com/repos/${syncConfig.repo}/git/ref/heads/${DATA_BRANCH}`, {
+          method: 'GET',
+          headers: ghHeaders(true),
+          cache: 'no-store'
+        });
+        if (checkRes.ok) return true;
+
+        // Get default branch head SHA
+        const repoRes = await fetch(`https://api.github.com/repos/${syncConfig.repo}`, {
+          method: 'GET',
+          headers: ghHeaders(true),
+          cache: 'no-store'
+        });
+        if (!repoRes.ok) throw new Error('저장소를 찾을 수 없음 (' + repoRes.status + ')');
+        const repoInfo = await repoRes.json();
+        const defaultBranch = repoInfo.default_branch || 'main';
+
+        const refRes = await fetch(`https://api.github.com/repos/${syncConfig.repo}/git/ref/heads/${defaultBranch}`, {
+          method: 'GET',
+          headers: ghHeaders(true),
+          cache: 'no-store'
+        });
+        if (!refRes.ok) throw new Error('기본 브랜치 조회 실패 (' + refRes.status + ')');
+        const refData = await refRes.json();
+        const baseSha = refData.object && refData.object.sha;
+        if (!baseSha) throw new Error('기본 브랜치 커밋 없음');
+
+        const createRes = await fetch(`https://api.github.com/repos/${syncConfig.repo}/git/refs`, {
+          method: 'POST',
+          headers: Object.assign({ 'Content-Type': 'application/json' }, ghHeaders(true)),
+          body: JSON.stringify({
+            ref: `refs/heads/${DATA_BRANCH}`,
+            sha: baseSha
+          })
+        });
+        if (!createRes.ok && createRes.status !== 422) {
+          throw new Error('data 브랜치 생성 실패 (' + createRes.status + ')');
+        }
+        return true;
+      }
+
+      async function writeScheduleFileWithMerge(mutatorFn, commitMsg) {
+        await ensureDataBranchExists();
+        let lastErr = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const remote = await readScheduleFileFromGitHub(true);
+          const currentMap = (remote.exists && remote.members && typeof remote.members === 'object')
+            ? Object.assign({}, remote.members)
+            : buildMembersMapFromLocal();
+
+          const nextMap = mutatorFn(currentMap);
+          const filePayload = {
+            updatedAt: new Date().toISOString(),
+            members: nextMap
+          };
+          const body = {
+            message: commitMsg || 'Update band schedule',
+            content: utf8ToBase64(JSON.stringify(filePayload, null, 2)),
+            branch: DATA_BRANCH
+          };
+          if (remote.sha) {
+            body.sha = remote.sha;
+          }
+
+          const putRes = await fetch(`https://api.github.com/repos/${syncConfig.repo}/contents/${DATA_FILE_PATH}`, {
+            method: 'PUT',
+            headers: Object.assign({ 'Content-Type': 'application/json' }, ghHeaders(true)),
+            body: JSON.stringify(body)
+          });
+
+          if (putRes.status === 409) {
+            lastErr = new Error('동시 수정 충돌');
+            continue;
+          }
+          if (putRes.status === 401 || putRes.status === 403) {
+            throw new Error('토큰에 Contents 쓰기 권한이 없습니다');
+          }
+          if (!putRes.ok) {
+            throw new Error('저장 실패 (HTTP ' + putRes.status + ')');
+          }
+
+          const putJson = await putRes.json();
+          if (putJson && putJson.content && putJson.content.sha) {
+            lastRemoteSha = putJson.content.sha;
+          }
+          return nextMap;
+        }
+        throw lastErr || new Error('저장 충돌이 반복되었습니다');
+      }
+
+      function buildMembersMapFromLocal() {
+        const map = {};
+        const now = new Date().toISOString();
+        state.members.forEach((m, idx) => {
+          map[m.id] = {
+            id: m.id,
+            name: m.name,
+            part: m.part,
+            colorIdx: m.colorIdx,
+            order: idx,
+            slots: m.slots.slice(),
+            updatedAt: now
+          };
+        });
+        return map;
+      }
+
+      function enqueueWrite(taskFn, successToast) {
+        if (!isConnectedConfig(syncConfig)) return Promise.resolve(false);
+        pendingWriteCount++;
+        updateSyncUI();
+
+        const run = async () => {
+          try {
+            await taskFn();
+            lastSyncTime = new Date();
+            lastSyncError = null;
+            if (successToast) showToast(successToast);
+            return true;
+          } catch (err) {
+            lastSyncError = err.message || '저장 실패';
+            if (successToast) showToast('GitHub 저장 실패: ' + lastSyncError);
+            return false;
+          } finally {
+            pendingWriteCount = Math.max(0, pendingWriteCount - 1);
+            updateSyncUI();
+          }
+        };
+
+        const next = writeQueue.then(run, run);
+        writeQueue = next.then(() => {}, () => {});
+        return next;
+      }
+
+      async function fetchFromDb(silent) {
+        if (!isConnectedConfig(syncConfig) || isSyncing || pendingWriteCount > 0) return false;
+        const reqSeq = localEditSeq;
+        isSyncing = true;
+        updateSyncUI();
+        try {
+          const remote = await readScheduleFileFromGitHub(true);
+          lastSyncTime = new Date();
+          lastSyncError = null;
+          if (reqSeq !== localEditSeq || isDragging || pushDebounceTimer || pendingWriteCount > 0) {
+            return true;
+          }
+          if (remote.exists && remote.members && Object.keys(remote.members).length > 0) {
+            const changed = remote.sha !== lastRemoteSha;
+            lastRemoteSha = remote.sha;
+            if (changed || !silent) {
+              applyRemoteMembersMap(remote.members);
+            }
+            if (!silent) showToast(`GitHub에서 ${Object.keys(remote.members).length}명의 시간표를 불러왔습니다!`);
+          } else {
+            // Auto-initialize data branch with current schedule on first explicit connect
+            if (!silent) {
+              isSyncing = false;
+              await replaceAllInDb('GitHub에 시간표 초기 데이터를 생성하고 연동했습니다!');
+              return true;
+            }
+          }
+          return true;
+        } catch (err) {
+          lastSyncError = err.message || '연결 오류';
+          if (!silent) showToast('GitHub 연결 실패: ' + lastSyncError);
+          return false;
+        } finally {
+          isSyncing = false;
+          updateSyncUI();
+        }
+      }
+
+      function putMemberToDb(member) {
+        if (!member || !isConnectedConfig(syncConfig)) return Promise.resolve(false);
+        const snapshot = {
+          id: member.id,
+          name: member.name,
+          part: member.part,
+          colorIdx: member.colorIdx,
+          order: Math.max(0, state.members.findIndex(m => m.id === member.id)),
+          slots: member.slots.slice(),
+          updatedAt: new Date().toISOString()
+        };
+        return enqueueWrite(() =>
+          writeScheduleFileWithMerge((currentMap) => {
+            currentMap[snapshot.id] = snapshot;
+            return currentMap;
+          }, `Update ${snapshot.name}`),
+          null
+        );
+      }
+
+      function deleteMemberFromDb(memberId) {
+        if (!memberId || !isConnectedConfig(syncConfig)) return Promise.resolve(false);
+        return enqueueWrite(() =>
+          writeScheduleFileWithMerge((currentMap) => {
+            delete currentMap[memberId];
+            return currentMap;
+          }, `Remove member ${memberId}`),
+          null
+        );
+      }
+
+      function replaceAllInDb(successToast) {
+        if (!isConnectedConfig(syncConfig)) return Promise.resolve(false);
+        const fullMap = buildMembersMapFromLocal();
+        return enqueueWrite(() =>
+          writeScheduleFileWithMerge(() => fullMap, 'Sync all band schedules'),
+          successToast
+        );
+      }
+
+      function scheduleMemberSync(member) {
+        if (!member || !isConnectedConfig(syncConfig)) return;
+        localEditSeq++;
+        if (pushDebounceTimer) clearTimeout(pushDebounceTimer);
+        pushDebounceTimer = setTimeout(() => {
+          pushDebounceTimer = null;
+          putMemberToDb(member);
+        }, 450);
+      }
+
+      function restartAutoSync() {
+        if (autoSyncTimer) {
+          clearInterval(autoSyncTimer);
+          autoSyncTimer = null;
+        }
+        if (syncConfig.autoSync && isConnectedConfig(syncConfig)) {
+          autoSyncTimer = setInterval(() => {
+            if (!document.hidden && !isDragging && !isSyncing && !pushDebounceTimer && pendingWriteCount === 0) {
+              fetchFromDb(true);
+            }
+          }, 4000);
+        }
+      }
+
+      // --- Utilities ---
+      function showToast(msg) {
+        const toast = document.getElementById('toast');
+        const msgEl = document.getElementById('toastMessage');
+        msgEl.textContent = msg;
+        toast.classList.remove('opacity-0');
+        toast.classList.add('opacity-100');
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => {
+          toast.classList.remove('opacity-100');
+          toast.classList.add('opacity-0');
+        }, 2600);
+      }
+
+      function copyText(text, successMsg) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(() => {
+            showToast(successMsg);
+          }).catch(() => {
+            fallbackCopy(text, successMsg);
+          });
+        } else {
+          fallbackCopy(text, successMsg);
+        }
+      }
+
+      function fallbackCopy(text, successMsg) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand('copy');
+          showToast(successMsg);
+        } catch (e) {
+          showToast('복사에 실패했습니다. 직접 선택해 복사해주세요.');
+        }
+        document.body.removeChild(ta);
+      }
+
+      function formatHour(h) {
+        return String(h).padStart(2, '0') + ':00';
+      }
+
+      function getIncludedMembers() {
+        return state.members.filter(m => m.included);
+      }
+
+      function getActiveMember() {
+        return state.members.find(m => m.id === state.activeMemberId) || state.members[0] || null;
+      }
+
+      function getSlotAvailability(slotKey) {
+        const included = getIncludedMembers();
+        const available = [];
+        const unavailable = [];
+        included.forEach(m => {
+          if (m.slots.includes(slotKey)) {
+            available.push(m);
+          } else {
+            unavailable.push(m);
+          }
+        });
+        return { available, unavailable, total: included.length };
+      }
+
+      function getOverlapStyle(count, total) {
+        if (total === 0 || count === 0) {
+          return { bg: '#ffffff', text: '#cbd5e1', border: '#e2e8f0', isAll: false };
+        }
+        if (count === total) {
+          return { bg: '#10b981', text: '#ffffff', border: '#059669', isAll: true };
+        }
+        const ratio = count / total;
+        if (ratio >= 0.75) {
+          return { bg: '#6ee7b7', text: '#064e3b', border: '#34d399', isAll: false };
+        }
+        if (ratio >= 0.5) {
+          return { bg: '#a7f3d0', text: '#065f46', border: '#6ee7b7', isAll: false };
+        }
+        if (ratio >= 0.25) {
+          return { bg: '#d1fae5', text: '#047857', border: '#a7f3d0', isAll: false };
+        }
+        return { bg: '#ecfdf5', text: '#059669', border: '#d1fae5', isAll: false };
+      }
+
+      function computeRecommendedBlocks() {
+        const included = getIncludedMembers();
+        const total = included.length;
+        if (total === 0) return [];
+
+        const effectiveMin = state.minMembers > 0 ? Math.min(state.minMembers, total) : Math.max(1, Math.min(total, total >= 2 ? Math.max(2, total - 1) : 1));
+        const blocks = [];
+
+        for (let d = 0; d < 7; d++) {
+          let currentBlock = null;
+          for (let h = state.startHour; h < state.endHour; h++) {
+            const key = `${d}-${h}`;
+            const { available } = getSlotAvailability(key);
+            const idsKey = available.map(m => m.id).sort().join(',');
+
+            if (available.length >= effectiveMin) {
+              if (currentBlock && currentBlock.idsKey === idsKey && currentBlock.endHour === h) {
+                currentBlock.endHour = h + 1;
+                currentBlock.slots.push(key);
+              } else {
+                if (currentBlock) blocks.push(currentBlock);
+                currentBlock = {
+                  dayIdx: d,
+                  startHour: h,
+                  endHour: h + 1,
+                  count: available.length,
+                  total: total,
+                  members: available,
+                  idsKey: idsKey,
+                  slots: [key]
+                };
+              }
+            } else {
+              if (currentBlock) {
+                blocks.push(currentBlock);
+                currentBlock = null;
+              }
+            }
+          }
+          if (currentBlock) blocks.push(currentBlock);
+        }
+
+        blocks.sort((a, b) => {
+          if (b.count !== a.count) return b.count - a.count;
+          const durDiff = (b.endHour - b.startHour) - (a.endHour - a.startHour);
+          if (durDiff !== 0) return durDiff;
+          if (a.dayIdx !== b.dayIdx) return a.dayIdx - b.dayIdx;
+          return a.startHour - b.startHour;
+        });
+
+        return blocks;
+      }
+
+      // --- Render Functions ---
+      function populateHourSelects() {
+        const startSel = document.getElementById('startHourSelect');
+        const endSel = document.getElementById('endHourSelect');
+        startSel.innerHTML = '';
+        endSel.innerHTML = '';
+
+        for (let h = 0; h <= 20; h++) {
+          const opt = document.createElement('option');
+          opt.value = h;
+          opt.textContent = formatHour(h);
+          if (h === state.startHour) opt.selected = true;
+          startSel.appendChild(opt);
+        }
+        for (let h = Math.max(state.startHour + 1, 10); h <= 24; h++) {
+          const opt = document.createElement('option');
+          opt.value = h;
+          opt.textContent = formatHour(h);
+          if (h === state.endHour) opt.selected = true;
+          endSel.appendChild(opt);
+        }
+      }
+
+      function populateMinMembersSelect() {
+        const sel = document.getElementById('minMembersFilter');
+        const total = getIncludedMembers().length;
+        sel.innerHTML = '';
+
+        const autoOpt = document.createElement('option');
+        autoOpt.value = 0;
+        autoOpt.textContent = total > 0 ? `자동 (${total >= 2 ? Math.max(2, total - 1) : 1}명+)` : '자동';
+        if (state.minMembers === 0) autoOpt.selected = true;
+        sel.appendChild(autoOpt);
+
+        for (let i = total; i >= 1; i--) {
+          const opt = document.createElement('option');
+          opt.value = i;
+          opt.textContent = i === total ? `전원 (${i}명)` : `${i}명 이상`;
+          if (state.minMembers === i) opt.selected = true;
+          sel.appendChild(opt);
+        }
+      }
+
+      function renderMembers() {
+        const container = document.getElementById('memberListContainer');
+        const badge = document.getElementById('memberCountBadge');
+        const includedCount = getIncludedMembers().length;
+        badge.textContent = `${state.members.length}명 (비교 ${includedCount}명)`;
+
+        container.innerHTML = '';
+        state.members.forEach(m => {
+          const color = MEMBER_COLORS[m.colorIdx % MEMBER_COLORS.length];
+          const isActive = m.id === state.activeMemberId;
+
+          const card = document.createElement('div');
+          card.className = `group inline-flex items-center gap-1.5 pl-2 pr-1.5 py-1.5 rounded-xl border text-xs transition ${
+            isActive && state.mode === 'edit'
+              ? 'ring-2 ring-indigo-500 border-indigo-400 bg-indigo-50/70'
+              : m.included
+                ? 'border-slate-200 bg-white hover:border-slate-300'
+                : 'border-dashed border-slate-200 bg-slate-50 opacity-65'
+          }`;
+
+          const chk = document.createElement('input');
+          chk.type = 'checkbox';
+          chk.checked = m.included;
+          chk.title = '겹침 계산에 포함';
+          chk.className = 'w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer accent-emerald-600';
+          chk.addEventListener('change', (e) => {
+            e.stopPropagation();
+            m.included = chk.checked;
+            saveState();
+            renderAll();
+          });
+
+          const btnSelect = document.createElement('button');
+          btnSelect.type = 'button';
+          btnSelect.className = 'flex items-center gap-1.5 text-left font-medium text-slate-800 hover:text-indigo-700';
+          btnSelect.innerHTML = `
+            <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${color.dot}"></span>
+            <span>${PART_ICONS[m.part] || '🎵'}</span>
+            <span class="font-semibold">${escapeHtml(m.name)}</span>
+            <span class="text-[11px] text-slate-400 font-normal">(${m.slots.length}h)</span>
+          `;
+          btnSelect.addEventListener('click', () => {
+            state.activeMemberId = m.id;
+            state.mode = 'edit';
+            state.highlightedSlots = [];
+            saveState();
+            renderAll();
+          });
+
+          const btnEdit = document.createElement('button');
+          btnEdit.type = 'button';
+          btnEdit.title = '이름/파트 수정';
+          btnEdit.className = 'p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition';
+          btnEdit.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>`;
+          btnEdit.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openRenameModal(m.id);
+          });
+
+          const btnDel = document.createElement('button');
+          btnDel.type = 'button';
+          btnDel.title = '멤버 삭제';
+          btnDel.className = 'p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition';
+          btnDel.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>`;
+          btnDel.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (state.members.length <= 1) {
+              showToast('최소 1명의 멤버는 남아있어야 합니다.');
+              return;
+            }
+            const removedId = m.id;
+            const removedName = m.name;
+            localEditSeq++;
+            state.members = state.members.filter(x => x.id !== removedId);
+            if (state.activeMemberId === removedId) {
+              state.activeMemberId = state.members[0].id;
+            }
+            saveState();
+            renderAll();
+            showToast(`'${removedName}' 멤버를 삭제했습니다.`);
+            deleteMemberFromDb(removedId);
+          });
+
+          card.appendChild(chk);
+          card.appendChild(btnSelect);
+          card.appendChild(btnEdit);
+          card.appendChild(btnDel);
+          container.appendChild(card);
+        });
+      }
+
+      function renderModeTabsAndContext() {
+        const tabOverlap = document.getElementById('tabOverlap');
+        const tabEdit = document.getElementById('tabEdit');
+        const contextBar = document.getElementById('modeContextBar');
+        const activeMember = getActiveMember();
+
+        if (state.mode === 'overlap') {
+          tabOverlap.className = 'px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-semibold bg-white text-emerald-700 shadow-sm transition';
+          tabEdit.className = 'px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium text-slate-600 hover:text-slate-900 transition';
+          contextBar.innerHTML = `
+            <div class="flex items-center gap-2 text-slate-600">
+              <span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span>색이 진할수록 많은 멤버가 겹칩니다. 칸을 클릭해 상세 인원을 확인하세요.</span>
+            </div>
+            <button id="btnQuickSwitchEdit" type="button" class="text-indigo-600 font-semibold hover:underline">
+              + 내 시간 입력하러 가기
+            </button>
+          `;
+          document.getElementById('btnQuickSwitchEdit').addEventListener('click', () => {
+            state.mode = 'edit';
+            saveState();
+            renderAll();
+          });
+        } else {
+          tabEdit.className = 'px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-semibold bg-white text-indigo-700 shadow-sm transition';
+          tabOverlap.className = 'px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium text-slate-600 hover:text-slate-900 transition';
+          const color = activeMember ? MEMBER_COLORS[activeMember.colorIdx % MEMBER_COLORS.length] : MEMBER_COLORS[0];
+          contextBar.innerHTML = `
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-semibold" style="background:${color.bg}; color:${color.text}; border:1px solid ${color.border}">
+                <span>${activeMember ? (PART_ICONS[activeMember.part] || '🎵') : ''}</span>
+                <span>${activeMember ? escapeHtml(activeMember.name) : ''}</span>
+                <span>입력 중</span>
+              </span>
+              <span class="text-slate-500">클릭하거나 드래그해서 가능한 1시간 칸을 칠하세요.</span>
+            </div>
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <button id="btnFillWeekdayEve" type="button" class="px-2 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition">평일 저녁(18~22시)</button>
+              <button id="btnFillWeekend" type="button" class="px-2 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition">주말 낮(13~18시)</button>
+              <button id="btnClearActiveMember" type="button" class="px-2 py-1 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 font-medium transition">이 멤버 비우기</button>
+            </div>
+          `;
+          document.getElementById('btnFillWeekdayEve').addEventListener('click', () => {
+            if (!activeMember) return;
+            const set = new Set(activeMember.slots);
+            for (let d = 0; d < 5; d++) {
+              for (let h = 18; h < 22; h++) {
+                if (h >= state.startHour && h < state.endHour) set.add(`${d}-${h}`);
+              }
+            }
+            activeMember.slots = Array.from(set);
+            saveState();
+            scheduleMemberSync(activeMember);
+            renderAll();
+            showToast(`${activeMember.name} 평일 저녁 시간을 추가했습니다.`);
+          });
+          document.getElementById('btnFillWeekend').addEventListener('click', () => {
+            if (!activeMember) return;
+            const set = new Set(activeMember.slots);
+            for (let d = 5; d < 7; d++) {
+              for (let h = 13; h < 18; h++) {
+                if (h >= state.startHour && h < state.endHour) set.add(`${d}-${h}`);
+              }
+            }
+            activeMember.slots = Array.from(set);
+            saveState();
+            scheduleMemberSync(activeMember);
+            renderAll();
+            showToast(`${activeMember.name} 주말 낮 시간을 추가했습니다.`);
+          });
+          document.getElementById('btnClearActiveMember').addEventListener('click', () => {
+            if (!activeMember) return;
+            activeMember.slots = [];
+            saveState();
+            scheduleMemberSync(activeMember);
+            renderAll();
+            showToast(`${activeMember.name}의 선택 시간을 모두 비웠습니다.`);
+          });
+        }
+      }
+
+      function renderGrid() {
+        const grid = document.getElementById('timetableGrid');
+        const activeMember = getActiveMember();
+        const activeColor = activeMember ? MEMBER_COLORS[activeMember.colorIdx % MEMBER_COLORS.length] : MEMBER_COLORS[0];
+        const includedTotal = getIncludedMembers().length;
+
+        grid.innerHTML = '';
+
+        for (let h = state.startHour; h < state.endHour; h++) {
+          const row = document.createElement('div');
+          row.className = 'grid grid-cols-8 gap-1 items-stretch';
+
+          const label = document.createElement('div');
+          label.className = 'flex flex-col items-center justify-center pr-1 text-[11px] font-medium text-slate-500 leading-tight';
+          label.innerHTML = `<span>${formatHour(h)}</span><span class="text-[9px] text-slate-400">~${formatHour(h + 1)}</span>`;
+          row.appendChild(label);
+
+          for (let d = 0; d < 7; d++) {
+            const slotKey = `${d}-${h}`;
+            const cell = document.createElement('div');
+            cell.dataset.slot = slotKey;
+            const isHighlighted = state.highlightedSlots.includes(slotKey);
+            const isInspected = state.inspectedSlot === slotKey;
+
+            cell.className = `grid-cell relative h-9 sm:h-10 rounded-lg border flex items-center justify-center text-xs font-semibold cursor-pointer ${
+              isHighlighted ? 'highlighted-block' : ''
+            } ${isInspected ? 'inspected-cell' : ''}`;
+
+            const { available, total } = getSlotAvailability(slotKey);
+
+            if (state.mode === 'overlap') {
+              const style = getOverlapStyle(available.length, total);
+              cell.style.backgroundColor = style.bg;
+              cell.style.color = style.text;
+              cell.style.borderColor = style.border;
+
+              if (available.length > 0) {
+                cell.innerHTML = style.isAll
+                  ? `<span class="flex items-center gap-0.5"><span>★</span><span>${available.length}</span></span>`
+                  : `<span>${available.length}</span>`;
+              } else {
+                cell.innerHTML = `<span class="text-[10px] opacity-40">-</span>`;
+              }
+            } else {
+              const isSelected = activeMember && activeMember.slots.includes(slotKey);
+              const othersCount = available.filter(m => !activeMember || m.id !== activeMember.id).length;
+
+              if (isSelected) {
+                cell.style.backgroundColor = activeColor.dot;
+                cell.style.color = '#ffffff';
+                cell.style.borderColor = activeColor.dot;
+                cell.innerHTML = `<span>✓</span>${othersCount > 0 ? `<span class="absolute top-0.5 right-1 text-[9px] opacity-85">+${othersCount}</span>` : ''}`;
+              } else {
+                cell.style.backgroundColor = othersCount > 0 ? '#f8fafc' : '#ffffff';
+                cell.style.color = '#94a3b8';
+                cell.style.borderColor = '#e2e8f0';
+                cell.innerHTML = othersCount > 0
+                  ? `<span class="text-[10px] text-emerald-600 font-medium">${othersCount}명</span>`
+                  : '';
+              }
+            }
+
+            cell.addEventListener('mousedown', (e) => {
+              e.preventDefault();
+              state.inspectedSlot = slotKey;
+              if (state.mode === 'edit' && activeMember) {
+                isDragging = true;
+                dragPaintValue = !activeMember.slots.includes(slotKey);
+                applySlotChange(activeMember, slotKey, dragPaintValue);
+                renderAll();
+              } else {
+                renderSlotInspector();
+                updateInspectedHighlight();
+              }
+            });
+
+            cell.addEventListener('mouseenter', () => {
+              if (isDragging && state.mode === 'edit' && activeMember) {
+                applySlotChange(activeMember, slotKey, dragPaintValue);
+                renderAll();
+              } else if (state.mode === 'overlap') {
+                state.inspectedSlot = slotKey;
+                renderSlotInspector();
+                updateInspectedHighlight();
+              }
+            });
+
+            row.appendChild(cell);
+          }
+          grid.appendChild(row);
+        }
+
+        const legend = document.getElementById('legendFooter');
+        if (state.mode === 'overlap') {
+          legend.innerHTML = `
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-semibold text-slate-700">겹침 범례:</span>
+              <span class="inline-flex items-center gap-1"><span class="w-3.5 h-3.5 rounded bg-white border border-slate-200 inline-block"></span>0명</span>
+              <span class="inline-flex items-center gap-1"><span class="w-3.5 h-3.5 rounded bg-emerald-100 border border-emerald-200 inline-block"></span>일부</span>
+              <span class="inline-flex items-center gap-1"><span class="w-3.5 h-3.5 rounded bg-emerald-300 border border-emerald-400 inline-block"></span>다수</span>
+              <span class="inline-flex items-center gap-1"><span class="w-3.5 h-3.5 rounded bg-emerald-500 border border-emerald-600 inline-block"></span>★ 전원 (${includedTotal}명)</span>
+            </div>
+            <span class="text-slate-400">1칸 = 1시간</span>
+          `;
+        } else {
+          legend.innerHTML = `
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-semibold text-slate-700">입력 안내:</span>
+              <span>빈 칸의 초록 숫자는 다른 멤버 가능 인원입니다.</span>
+            </div>
+            <span class="text-slate-400">드래그로 여러 시간 연속 선택 가능</span>
+          `;
+        }
+      }
+
+      function updateInspectedHighlight() {
+        const cells = document.querySelectorAll('#timetableGrid .grid-cell');
+        cells.forEach(c => {
+          if (c.dataset.slot === state.inspectedSlot) {
+            c.classList.add('inspected-cell');
+          } else {
+            c.classList.remove('inspected-cell');
+          }
+        });
+      }
+
+      function applySlotChange(member, slotKey, shouldAdd) {
+        const idx = member.slots.indexOf(slotKey);
+        if (shouldAdd && idx === -1) {
+          member.slots.push(slotKey);
+          localEditSeq++;
+        } else if (!shouldAdd && idx !== -1) {
+          member.slots.splice(idx, 1);
+          localEditSeq++;
+        }
+      }
+
+      function renderSlotInspector() {
+        const badge = document.getElementById('inspectorBadge');
+        const body = document.getElementById('slotInspectorBody');
+
+        if (!state.inspectedSlot) {
+          badge.textContent = '칸을 클릭하세요';
+          badge.className = 'text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600';
+          body.innerHTML = `<p class="text-xs text-slate-500">시간표의 원하는 1시간 칸을 클릭하면 가능한 멤버와 불가능한 멤버를 확인할 수 있습니다.</p>`;
+          return;
+        }
+
+        const [dStr, hStr] = state.inspectedSlot.split('-');
+        const d = parseInt(dStr, 10);
+        const h = parseInt(hStr, 10);
+        const { available, unavailable, total } = getSlotAvailability(state.inspectedSlot);
+
+        badge.textContent = `${DAYS[d]}요일 ${formatHour(h)}~${formatHour(h + 1)}`;
+        badge.className = available.length === total && total > 0
+          ? 'text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800'
+          : 'text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700';
+
+        const availHtml = available.length > 0
+          ? available.map(m => {
+              const c = MEMBER_COLORS[m.colorIdx % MEMBER_COLORS.length];
+              return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium" style="background:${c.bg}; color:${c.text}; border:1px solid ${c.border}">${PART_ICONS[m.part] || ''} ${escapeHtml(m.name)}</span>`;
+            }).join('')
+          : `<span class="text-xs text-slate-400">없음</span>`;
+
+        const unavailHtml = unavailable.length > 0
+          ? unavailable.map(m => `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-500">${PART_ICONS[m.part] || ''} ${escapeHtml(m.name)}</span>`).join('')
+          : `<span class="text-xs text-emerald-600 font-medium">전원 참여 가능!</span>`;
+
+        body.innerHTML = `
+          <div class="space-y-3">
+            <div>
+              <div class="text-xs font-semibold text-emerald-700 mb-1.5">가능 (${available.length}/${total}명)</div>
+              <div class="flex flex-wrap gap-1.5">${availHtml}</div>
+            </div>
+            <div>
+              <div class="text-xs font-semibold text-slate-500 mb-1.5">불가능 (${unavailable.length}명)</div>
+              <div class="flex flex-wrap gap-1.5">${unavailHtml}</div>
+            </div>
+          </div>
+        `;
+      }
+
+      function renderRecommendations() {
+        const list = document.getElementById('recommendationList');
+        const blocks = computeRecommendedBlocks();
+
+        if (blocks.length === 0) {
+          list.innerHTML = `
+            <div class="p-4 rounded-xl bg-slate-50 border border-dashed border-slate-200 text-center text-xs text-slate-500">
+              조건에 맞는 겹치는 시간대가 아직 없습니다.<br/>멤버별 가능 시간을 입력하거나 최소 인원 필터를 낮춰보세요.
+            </div>
+          `;
+          return;
+        }
+
+        list.innerHTML = '';
+        blocks.forEach((b) => {
+          const isAll = b.count === b.total;
+          const duration = b.endHour - b.startHour;
+          const isActiveHighlight = b.slots.length > 0 && state.highlightedSlots.length === b.slots.length && b.slots.every(s => state.highlightedSlots.includes(s));
+
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = `w-full text-left p-3 rounded-xl border transition ${
+            isActiveHighlight
+              ? 'border-indigo-500 bg-indigo-50/70 ring-1 ring-indigo-500'
+              : isAll
+                ? 'border-emerald-200 bg-emerald-50/50 hover:bg-emerald-50'
+                : 'border-slate-200 bg-white hover:bg-slate-50'
+          }`;
+
+          const memberNames = b.members.map(m => m.name).join(', ');
+          btn.innerHTML = `
+            <div class="flex items-center justify-between gap-2">
+              <div class="font-bold text-sm text-slate-900">
+                ${DAYS[b.dayIdx]}요일 ${formatHour(b.startHour)} ~ ${formatHour(b.endHour)}
+              </div>
+              <span class="shrink-0 px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                isAll ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'
+              }">
+                ${isAll ? '★ 전원 ' + b.count + '명' : b.count + '/' + b.total + '명'}
+              </span>
+            </div>
+            <div class="mt-1 flex items-center justify-between text-xs text-slate-600">
+              <span class="truncate pr-2">${escapeHtml(memberNames)}</span>
+              <span class="shrink-0 font-semibold text-indigo-600">${duration}시간 연속</span>
+            </div>
+          `;
+
+          btn.addEventListener('click', () => {
+            state.mode = 'overlap';
+            state.highlightedSlots = isActiveHighlight ? [] : b.slots.slice();
+            state.inspectedSlot = b.slots[0];
+            renderAll();
+          });
+
+          list.appendChild(btn);
+        });
+      }
+
+      function renderAll() {
+        populateHourSelects();
+        populateMinMembersSelect();
+        renderMembers();
+        renderModeTabsAndContext();
+        renderGrid();
+        renderSlotInspector();
+        renderRecommendations();
+        updateSyncUI();
+      }
+
+      function escapeHtml(str) {
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      // --- Modals ---
+      function openSyncModal(defaultTab) {
+        document.getElementById('githubRepoInput').value = syncConfig.repo || inferRepoFromLocation() || '';
+        document.getElementById('githubTokenInput').value = syncConfig.token || '';
+        document.getElementById('autoSyncCheckbox').checked = syncConfig.autoSync;
+        switchSyncTab(defaultTab || 'config');
+        const modal = document.getElementById('syncModal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        updateSyncUI();
+      }
+
+      function closeSyncModal() {
+        const modal = document.getElementById('syncModal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+      }
+
+      function switchSyncTab(tab) {
+        const tabConfig = document.getElementById('syncTabConfig');
+        const tabGuide = document.getElementById('syncTabGuide');
+        const panelConfig = document.getElementById('syncPanelConfig');
+        const panelGuide = document.getElementById('syncPanelGuide');
+
+        if (tab === 'guide') {
+          tabGuide.className = 'px-3.5 py-2 text-xs font-bold border-b-2 border-indigo-600 text-indigo-700';
+          tabConfig.className = 'px-3.5 py-2 text-xs font-semibold border-b-2 border-transparent text-slate-500 hover:text-slate-800';
+          panelGuide.classList.remove('hidden');
+          panelConfig.classList.add('hidden');
+        } else {
+          tabConfig.className = 'px-3.5 py-2 text-xs font-bold border-b-2 border-indigo-600 text-indigo-700';
+          tabGuide.className = 'px-3.5 py-2 text-xs font-semibold border-b-2 border-transparent text-slate-500 hover:text-slate-800';
+          panelConfig.classList.remove('hidden');
+          panelGuide.classList.add('hidden');
+        }
+      }
+
+      function openRenameModal(memberId) {
+        const m = state.members.find(x => x.id === memberId);
+        if (!m) return;
+        renameTargetId = memberId;
+        document.getElementById('renameInput').value = m.name;
+        document.getElementById('renamePartSelect').value = m.part;
+        const modal = document.getElementById('renameModal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        document.getElementById('renameInput').focus();
+      }
+
+      function closeRenameModal() {
+        const modal = document.getElementById('renameModal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        renameTargetId = null;
+      }
+
+      function openShareModal() {
+        const payload = {
+          startHour: state.startHour,
+          endHour: state.endHour,
+          members: state.members.map(m => ({
+            name: m.name,
+            part: m.part,
+            slots: m.slots
+          }))
+        };
+        document.getElementById('shareCodeTextarea').value = JSON.stringify(payload);
+        const modal = document.getElementById('shareModal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+      }
+
+      function closeShareModal() {
+        const modal = document.getElementById('shareModal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+      }
+
+      function openResetModal() {
+        const modal = document.getElementById('resetModal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+      }
+
+      function closeResetModal() {
+        const modal = document.getElementById('resetModal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+      }
+
+      // --- Global Event Listeners ---
+      window.addEventListener('mouseup', () => {
+        if (isDragging) {
+          isDragging = false;
+          saveState();
+          scheduleMemberSync(getActiveMember());
+        }
+      });
+
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && isConnectedConfig(syncConfig) && !isDragging && !pushDebounceTimer) {
+          fetchFromDb(true);
+        }
+      });
+
+      const gridEl = document.getElementById('timetableGrid');
+      gridEl.addEventListener('touchstart', (e) => {
+        const target = e.target.closest('.grid-cell');
+        if (!target || !target.dataset.slot) return;
+        const slotKey = target.dataset.slot;
+        state.inspectedSlot = slotKey;
+        const activeMember = getActiveMember();
+        if (state.mode === 'edit' && activeMember) {
+          e.preventDefault();
+          isDragging = true;
+          dragPaintValue = !activeMember.slots.includes(slotKey);
+          applySlotChange(activeMember, slotKey, dragPaintValue);
+          renderAll();
+        } else {
+          renderSlotInspector();
+          updateInspectedHighlight();
+        }
+      }, { passive: false });
+
+      gridEl.addEventListener('touchmove', (e) => {
+        if (!isDragging || state.mode !== 'edit') return;
+        e.preventDefault();
+        const touch = e.touches[0];
+        const el = document.elementFromPoint(touch.clientX, touch.clientY);
+        const cell = el ? el.closest('.grid-cell') : null;
+        const activeMember = getActiveMember();
+        if (cell && cell.dataset.slot && activeMember) {
+          const prevLen = activeMember.slots.length;
+          applySlotChange(activeMember, cell.dataset.slot, dragPaintValue);
+          if (activeMember.slots.length !== prevLen) {
+            renderAll();
+          }
+        }
+      }, { passive: false });
+
+      window.addEventListener('touchend', () => {
+        if (isDragging) {
+          isDragging = false;
+          saveState();
+          scheduleMemberSync(getActiveMember());
+        }
+      });
+
+      // Sync Modal & Header Sync Controls
+      document.getElementById('btnOpenSyncModal').addEventListener('click', () => openSyncModal('config'));
+      document.getElementById('btnBannerSetup').addEventListener('click', () => openSyncModal(isConnectedConfig(syncConfig) ? 'config' : 'guide'));
+      document.getElementById('btnCloseSyncModal').addEventListener('click', closeSyncModal);
+      document.getElementById('syncModal').addEventListener('click', (e) => {
+        if (e.target.id === 'syncModal') closeSyncModal();
+      });
+      document.getElementById('syncTabConfig').addEventListener('click', () => switchSyncTab('config'));
+      document.getElementById('syncTabGuide').addEventListener('click', () => switchSyncTab('guide'));
+
+      function handleCopyInviteLink() {
+        const inviteUrl = getInviteUrl();
+        if (!inviteUrl) {
+          showToast('먼저 GitHub 동기화를 연결해주세요.');
+          return;
+        }
+        copyText(inviteUrl, '친구 초대 링크를 복사했습니다! 단톡방에 붙여넣으세요.');
+      }
+
+      document.getElementById('btnCopyInviteLinkBanner').addEventListener('click', handleCopyInviteLink);
+      document.getElementById('btnCopyInviteLinkModal').addEventListener('click', handleCopyInviteLink);
+
+      document.getElementById('btnSyncNow').addEventListener('click', () => {
+        fetchFromDb(false);
+      });
+
+      document.getElementById('autoSyncCheckbox').addEventListener('change', (e) => {
+        syncConfig.autoSync = e.target.checked;
+        saveSyncConfig();
+        restartAutoSync();
+      });
+
+      document.getElementById('btnSaveAndConnect').addEventListener('click', async () => {
+        const repo = normalizeRepo(document.getElementById('githubRepoInput').value);
+        const token = document.getElementById('githubTokenInput').value.trim();
+        if (!isValidRepo(repo)) {
+          showToast('저장소를 "아이디/저장소명" 형식으로 입력하세요. (예: hong/band-scheduler)');
+          return;
+        }
+        if (token.length < 10) {
+          showToast('발급받은 GitHub 토큰을 입력해주세요.');
+          return;
+        }
+        syncConfig.repo = repo;
+        syncConfig.token = token;
+        syncConfig.autoSync = document.getElementById('autoSyncCheckbox').checked;
+        lastRemoteSha = null;
+        saveSyncConfig();
+        restartAutoSync();
+        const ok = await fetchFromDb(false);
+        if (ok) closeSyncModal();
+      });
+
+      document.getElementById('btnPushAllToDb').addEventListener('click', async () => {
+        const repo = normalizeRepo(document.getElementById('githubRepoInput').value);
+        const token = document.getElementById('githubTokenInput').value.trim();
+        if (!isValidRepo(repo) || token.length < 10) {
+          showToast('먼저 GitHub 저장소와 토큰을 입력하세요.');
+          return;
+        }
+        syncConfig.repo = repo;
+        syncConfig.token = token;
+        syncConfig.autoSync = document.getElementById('autoSyncCheckbox').checked;
+        saveSyncConfig();
+        restartAutoSync();
+        const ok = await replaceAllInDb('현재 시간표를 GitHub에 업로드했습니다!');
+        if (ok) closeSyncModal();
+      });
+
+      document.getElementById('btnDisconnectDb').addEventListener('click', () => {
+        syncConfig.token = '';
+        lastRemoteSha = null;
+        lastSyncTime = null;
+        lastSyncError = null;
+        saveSyncConfig();
+        restartAutoSync();
+        document.getElementById('githubTokenInput').value = '';
+        updateSyncUI();
+        showToast('GitHub 연동을 해제했습니다.');
+      });
+
+      // Tabs
+      document.getElementById('tabOverlap').addEventListener('click', () => {
+        state.mode = 'overlap';
+        saveState();
+        renderAll();
+      });
+
+      document.getElementById('tabEdit').addEventListener('click', () => {
+        state.mode = 'edit';
+        state.highlightedSlots = [];
+        saveState();
+        renderAll();
+      });
+
+      // Add Member
+      document.getElementById('addMemberForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const nameInput = document.getElementById('newMemberName');
+        const partSelect = document.getElementById('newMemberPart');
+        const name = nameInput.value.trim();
+        if (!name) {
+          showToast('추가할 멤버 이름을 입력해주세요.');
+          nameInput.focus();
+          return;
+        }
+        const newId = 'm_' + Date.now();
+        const newMember = {
+          id: newId,
+          name: name,
+          part: partSelect.value,
+          colorIdx: state.members.length % MEMBER_COLORS.length,
+          included: true,
+          slots: []
+        };
+        state.members.push(newMember);
+        state.activeMemberId = newId;
+        state.mode = 'edit';
+        state.highlightedSlots = [];
+        nameInput.value = '';
+        saveState();
+        scheduleMemberSync(newMember);
+        renderAll();
+        showToast(`'${name}' 멤버를 추가했습니다. 시간을 선택해보세요!`);
+      });
+
+      // Time Range Selects
+      document.getElementById('startHourSelect').addEventListener('change', (e) => {
+        const val = parseInt(e.target.value, 10);
+        state.startHour = val;
+        if (state.endHour <= val) {
+          state.endHour = Math.min(24, val + 1);
+        }
+        saveState();
+        renderAll();
+      });
+
+      document.getElementById('endHourSelect').addEventListener('change', (e) => {
+        const val = parseInt(e.target.value, 10);
+        state.endHour = val;
+        saveState();
+        renderAll();
+      });
+
+      // Min Members Filter
+      document.getElementById('minMembersFilter').addEventListener('change', (e) => {
+        state.minMembers = parseInt(e.target.value, 10);
+        saveState();
+        renderRecommendations();
+      });
+
+      // Copy Summary for KakaoTalk / Chat
+      document.getElementById('btnCopySummary').addEventListener('click', () => {
+        const blocks = computeRecommendedBlocks();
+        if (blocks.length === 0) {
+          showToast('복사할 겹치는 시간대가 없습니다.');
+          return;
+        }
+        const includedCount = getIncludedMembers().length;
+        const lines = [`[밴드 합주 가능 시간 정리] (비교 인원 ${includedCount}명)`];
+        blocks.slice(0, 8).forEach((b, idx) => {
+          const tag = b.count === b.total ? `★전원 ${b.count}명` : `${b.count}/${b.total}명`;
+          const names = b.members.map(m => m.name).join(', ');
+          lines.push(`${idx + 1}. ${DAYS[b.dayIdx]}요일 ${formatHour(b.startHour)}~${formatHour(b.endHour)} (${b.endHour - b.startHour}시간) [${tag}: ${names}]`);
+        });
+        copyText(lines.join('\n'), '합주 추천 시간 요약을 복사했습니다!');
+      });
+
+      // Share Modal buttons
+      document.getElementById('btnOpenShareModal').addEventListener('click', openShareModal);
+      document.getElementById('btnCloseShareModal').addEventListener('click', closeShareModal);
+      document.getElementById('shareModal').addEventListener('click', (e) => {
+        if (e.target.id === 'shareModal') closeShareModal();
+      });
+      document.getElementById('btnCopyShareCode').addEventListener('click', () => {
+        const code = document.getElementById('shareCodeTextarea').value.trim();
+        copyText(code, '공유 코드를 복사했습니다!');
+      });
+
+      document.getElementById('btnImportShareCode').addEventListener('click', () => {
+        try {
+          const parsed = JSON.parse(document.getElementById('shareCodeTextarea').value.trim());
+          if (!parsed || !Array.isArray(parsed.members) || parsed.members.length === 0) {
+            throw new Error('invalid');
+          }
+          localEditSeq++;
+          state.startHour = typeof parsed.startHour === 'number' ? parsed.startHour : state.startHour;
+          state.endHour = typeof parsed.endHour === 'number' ? parsed.endHour : state.endHour;
+          state.members = parsed.members.map((m, idx) => ({
+            id: 'imp_' + idx + '_' + Date.now(),
+            name: String(m.name || '멤버'),
+            part: PART_ICONS[m.part] ? m.part : '세션',
+            colorIdx: idx % MEMBER_COLORS.length,
+            included: true,
+            slots: Array.isArray(m.slots) ? Array.from(new Set(m.slots)) : []
+          }));
+          state.activeMemberId = state.members[0].id;
+          state.mode = 'overlap';
+          state.highlightedSlots = [];
+          saveState();
+          renderAll();
+          closeShareModal();
+          showToast('공유 코드에서 시간표를 불러왔습니다!');
+          replaceAllInDb(null);
+        } catch (e) {
+          showToast('올바른 공유 코드 형식이 아닙니다.');
+        }
+      });
+
+      document.getElementById('btnMergeShareCode').addEventListener('click', () => {
+        try {
+          const parsed = JSON.parse(document.getElementById('shareCodeTextarea').value.trim());
+          if (!parsed || !Array.isArray(parsed.members) || parsed.members.length === 0) {
+            throw new Error('invalid');
+          }
+          localEditSeq++;
+          let addedCount = 0;
+          let updatedCount = 0;
+          parsed.members.forEach((incoming) => {
+            const name = String(incoming.name || '').trim();
+            if (!name) return;
+            const existing = state.members.find(m => m.name === name);
+            const slots = Array.isArray(incoming.slots) ? Array.from(new Set(incoming.slots)) : [];
+            if (existing) {
+              existing.slots = Array.from(new Set([...existing.slots, ...slots]));
+              updatedCount++;
+            } else {
+              state.members.push({
+                id: 'mrg_' + Date.now() + '_' + addedCount,
+                name: name,
+                part: PART_ICONS[incoming.part] ? incoming.part : '세션',
+                colorIdx: state.members.length % MEMBER_COLORS.length,
+                included: true,
+                slots: slots
+              });
+              addedCount++;
+            }
+          });
+          state.mode = 'overlap';
+          saveState();
+          renderAll();
+          closeShareModal();
+          showToast(`병합 완료! (추가 ${addedCount}명, 갱신 ${updatedCount}명)`);
+          replaceAllInDb(null);
+        } catch (e) {
+          showToast('올바른 공유 코드 형식이 아닙니다.');
+        }
+      });
+
+      // Reset Modal buttons
+      document.getElementById('btnOpenResetModal').addEventListener('click', openResetModal);
+      document.getElementById('btnCancelReset').addEventListener('click', closeResetModal);
+      document.getElementById('resetModal').addEventListener('click', (e) => {
+        if (e.target.id === 'resetModal') closeResetModal();
+      });
+      document.getElementById('btnClearAllSlots').addEventListener('click', () => {
+        localEditSeq++;
+        state.members.forEach(m => { m.slots = []; });
+        state.highlightedSlots = [];
+        saveState();
+        renderAll();
+        closeResetModal();
+        showToast('모든 멤버의 선택 시간을 비웠습니다.');
+        replaceAllInDb(null);
+      });
+      document.getElementById('btnLoadSampleData').addEventListener('click', () => {
+        localEditSeq++;
+        state = createDefaultState();
+        saveState();
+        renderAll();
+        closeResetModal();
+        showToast('기본 예시 데이터로 되돌렸습니다.');
+        replaceAllInDb(null);
+      });
+
+      // Rename Modal buttons
+      document.getElementById('btnCancelRename').addEventListener('click', closeRenameModal);
+      document.getElementById('renameModal').addEventListener('click', (e) => {
+        if (e.target.id === 'renameModal') closeRenameModal();
+      });
+      document.getElementById('renameForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const m = state.members.find(x => x.id === renameTargetId);
+        const newName = document.getElementById('renameInput').value.trim();
+        if (m && newName) {
+          m.name = newName;
+          m.part = document.getElementById('renamePartSelect').value;
+          saveState();
+          scheduleMemberSync(m);
+          renderAll();
+          closeRenameModal();
+          showToast('멤버 정보를 수정했습니다.');
+        }
+      });
+
+      // Initial render & auto-sync startup
+      renderAll();
+      if (isConnectedConfig(syncConfig)) {
+        if (joinedViaInviteLink) {
+          showToast('초대 링크로 자동 연결되었습니다! 최신 시간표를 불러옵니다.');
+        }
+        fetchFromDb(true);
+        restartAutoSync();
+      }
+    })();
+  </script>
+</body>
+</html>
