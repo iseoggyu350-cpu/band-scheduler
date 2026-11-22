@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#4f46e5" />
+  <meta id="themeColorMeta" name="theme-color" content="#4f46e5" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="합주시간표" />
-  <title>밴드 합주 시간표 앱 (1시간 단위 · GitHub 실시간 동기화)</title>
+  <title>밴드 합주 시간표 (여러 주차 · 팀별 분리 · GitHub 동기화)</title>
   <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -37,6 +37,19 @@
       box-shadow: inset 0 0 0 2.5px #0f172a;
       z-index: 6;
     }
+    .no-scrollbar {
+      scrollbar-width: none;
+    }
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    @keyframes teamSwitchIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: none; }
+    }
+    .team-switch-in {
+      animation: teamSwitchIn 0.3s ease-out;
+    }
     ::-webkit-scrollbar {
       width: 6px;
       height: 6px;
@@ -58,17 +71,19 @@
   <!-- Header -->
   <header class="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200">
     <div class="max-w-7xl mx-auto px-3 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-2">
-      <div class="flex items-center gap-2.5 min-w-0">
-        <div class="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-          </svg>
-        </div>
+      <!-- Team Switcher -->
+      <button id="btnOpenTeamModal" type="button" class="flex items-center gap-2.5 min-w-0 text-left rounded-xl -ml-1 pl-1 pr-2 py-0.5 hover:bg-slate-100 transition" title="팀 선택 / 전환">
+        <div id="teamLogo" class="w-9 h-9 rounded-xl text-white flex items-center justify-center shrink-0 shadow-sm text-base font-bold" style="background:#4f46e5">팀</div>
         <div class="min-w-0">
-          <h1 class="text-base sm:text-lg font-bold tracking-tight text-slate-900 truncate">밴드 합주 시간표</h1>
-          <p class="text-xs text-slate-500 truncate">1시간 단위 · GitHub 실시간 동기화</p>
+          <div class="flex items-center gap-1 min-w-0">
+            <h1 id="teamNameHeading" class="text-base sm:text-lg font-bold tracking-tight text-slate-900 truncate max-w-[48vw] sm:max-w-xs">우리 밴드</h1>
+            <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
+            </svg>
+          </div>
+          <p id="teamSubheading" class="text-xs text-slate-500 truncate">합주 시간표</p>
         </div>
-      </div>
+      </button>
 
       <div class="flex items-center gap-1.5 sm:gap-2 flex-wrap">
         <!-- GitHub Live Sync Status & Trigger -->
@@ -105,16 +120,16 @@
     </div>
   </header>
 
-  <main class="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4">
+  <main id="appMain" class="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4">
     <!-- Sync Banner -->
     <section id="syncInfoBanner" class="bg-indigo-50/80 border border-indigo-200 rounded-2xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-indigo-950">
       <div class="flex items-center gap-2">
         <span id="bannerDot" class="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
-        <span id="bannerText">현재 로컬 모드입니다. <strong>GitHub 동기화 연결</strong>에 저장소 전용 토큰을 1번 입력하고 친구 초대 링크를 공유하면 실시간으로 동기화됩니다.</span>
+        <span id="bannerText">현재 로컬 모드입니다.</span>
       </div>
       <div class="flex items-center gap-1.5 shrink-0">
         <button id="btnCopyInviteLinkBanner" type="button" class="hidden px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition">
-          친구 초대 링크 복사
+          이 팀 초대 링크 복사
         </button>
         <button id="btnBannerSetup" type="button" class="px-2.5 py-1 rounded-lg bg-indigo-600 text-white font-semibold hover:bg-indigo-700 transition">
           GitHub 연결 방법
@@ -162,6 +177,21 @@
       <section class="lg:col-span-8 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <!-- Toolbar -->
         <div class="p-3 sm:p-4 border-b border-slate-200 space-y-3">
+          <!-- Week Navigator -->
+          <div class="flex items-center gap-1.5">
+            <button id="btnPrevWeek" type="button" class="shrink-0 w-8 h-10 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition" aria-label="이전 주차">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg>
+            </button>
+            <div id="weekTabs" class="relative flex-1 min-w-0 flex gap-1.5 overflow-x-auto no-scrollbar"></div>
+            <button id="btnNextWeek" type="button" class="shrink-0 w-8 h-10 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition" aria-label="다음 주차">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
+            </button>
+            <button id="btnOpenPeriodModal" type="button" class="shrink-0 h-10 px-2.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-1 transition" title="합주 기간(시작 주 · 주차 수) 설정">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+              <span class="hidden sm:inline">기간 설정</span>
+            </button>
+          </div>
+
           <div class="flex flex-wrap items-center justify-between gap-2">
             <!-- Mode Switcher -->
             <div class="inline-flex rounded-xl bg-slate-100 p-1" role="tablist">
@@ -188,18 +218,9 @@
 
         <!-- Timetable Grid -->
         <div class="p-2 sm:p-4 overflow-x-auto">
-          <div class="min-w-[420px]">
-            <!-- Day Header -->
-            <div class="grid grid-cols-8 gap-1 mb-1 text-center">
-              <div class="text-[11px] font-semibold text-slate-400 py-1.5">시간</div>
-              <div class="text-xs font-bold text-slate-700 py-1.5 bg-slate-50 rounded-lg">월</div>
-              <div class="text-xs font-bold text-slate-700 py-1.5 bg-slate-50 rounded-lg">화</div>
-              <div class="text-xs font-bold text-slate-700 py-1.5 bg-slate-50 rounded-lg">수</div>
-              <div class="text-xs font-bold text-slate-700 py-1.5 bg-slate-50 rounded-lg">목</div>
-              <div class="text-xs font-bold text-slate-700 py-1.5 bg-slate-50 rounded-lg">금</div>
-              <div class="text-xs font-bold text-indigo-600 py-1.5 bg-indigo-50/70 rounded-lg">토</div>
-              <div class="text-xs font-bold text-rose-600 py-1.5 bg-rose-50/70 rounded-lg">일</div>
-            </div>
+          <div class="min-w-[340px]">
+            <!-- Day Header (dates) -->
+            <div id="dayHeaderRow" class="grid grid-cols-8 gap-1 mb-1 text-center"></div>
             <!-- Hour Rows -->
             <div id="timetableGrid" class="space-y-1"></div>
           </div>
@@ -213,8 +234,8 @@
       <aside class="lg:col-span-4 space-y-4">
         <!-- Slot Inspector Card -->
         <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-          <div class="flex items-center justify-between mb-2.5">
-            <h2 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+          <div class="flex items-center justify-between mb-2.5 gap-2">
+            <h2 class="text-sm font-bold text-slate-800 flex items-center gap-1.5 shrink-0">
               <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
@@ -229,7 +250,7 @@
 
         <!-- Recommended Overlapping Rehearsal Times -->
         <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-          <div class="flex items-center justify-between gap-2 mb-3">
+          <div class="flex items-center justify-between gap-2 mb-2.5">
             <h2 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
               <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -242,11 +263,108 @@
             </div>
           </div>
 
-          <div id="recommendationList" class="space-y-2 max-h-[420px] overflow-y-auto pr-1"></div>
+          <div id="recScopeSwitch" class="inline-flex rounded-lg bg-slate-100 p-0.5 mb-3 text-xs">
+            <button id="recScopeAll" type="button" class="px-2.5 py-1 rounded-md font-semibold transition">전체 주차</button>
+            <button id="recScopeWeek" type="button" class="px-2.5 py-1 rounded-md font-semibold transition">보고 있는 주차</button>
+          </div>
+
+          <div id="recommendationList" class="space-y-2 max-h-[560px] overflow-y-auto pr-1"></div>
         </section>
       </aside>
     </div>
   </main>
+
+  <!-- Team Select Modal -->
+  <div id="teamModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+        <div>
+          <h3 class="text-base font-bold text-slate-900">팀 선택</h3>
+          <p class="text-[11px] text-slate-500 mt-0.5">팀마다 멤버 · 가능 시간 · 합주 기간 · 동기화 파일이 완전히 따로 관리됩니다.</p>
+        </div>
+        <button id="btnCloseTeamModal" type="button" class="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+      <div class="p-5 overflow-y-auto space-y-4 text-xs">
+        <div id="teamList" class="space-y-2"></div>
+
+        <form id="createTeamForm" class="flex items-center gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200">
+          <input id="newTeamName" type="text" maxlength="20" placeholder="새 팀 이름 (예: 동아리 밴드)" class="flex-1 min-w-0 px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <button type="submit" class="shrink-0 px-3.5 py-2 rounded-lg text-sm font-semibold bg-slate-900 text-white hover:bg-slate-800 transition">+ 새 팀</button>
+        </form>
+
+        <div id="remoteTeamsSection" class="hidden space-y-2 p-3 rounded-xl border border-emerald-200 bg-emerald-50/50">
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <div class="font-semibold text-emerald-900">GitHub 저장소에 저장된 팀</div>
+              <div class="text-[11px] text-emerald-800/80">다른 기기에서 만든 팀을 이 기기 목록에 추가할 수 있어요.</div>
+            </div>
+            <button id="btnDiscoverTeams" type="button" class="shrink-0 px-3 py-1.5 rounded-lg font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition">저장소에서 팀 찾기</button>
+          </div>
+          <div id="remoteTeamList" class="space-y-1.5"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Team Edit Modal -->
+  <div id="teamEditModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 p-4">
+    <form id="teamEditForm" class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-5 space-y-4">
+      <h3 class="text-base font-bold text-slate-900">팀 정보 수정</h3>
+      <div class="space-y-3">
+        <div>
+          <label for="teamEditNameInput" class="block text-xs font-semibold text-slate-700 mb-1">팀 이름</label>
+          <input id="teamEditNameInput" type="text" maxlength="20" required class="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+        <div>
+          <div class="block text-xs font-semibold text-slate-700 mb-1.5">팀 색상</div>
+          <div id="teamColorSwatches" class="flex flex-wrap gap-2"></div>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2">
+        <button id="btnCancelTeamEdit" type="button" class="px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100">취소</button>
+        <button type="submit" class="px-4 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700">저장</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Period Settings Modal -->
+  <div id="periodModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 p-4">
+    <form id="periodForm" class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-5 space-y-4">
+      <div>
+        <h3 class="text-base font-bold text-slate-900">합주 기간 설정</h3>
+        <p class="text-xs text-slate-500 mt-1 leading-relaxed">여러 주차의 합주 일정을 한 번에 잡을 수 있어요. GitHub에 연결되어 있으면 이 팀 모두에게 같은 기간이 보입니다.</p>
+      </div>
+      <div class="space-y-3 text-xs">
+        <div>
+          <label for="periodStartInput" class="block font-semibold text-slate-700 mb-1">시작 주</label>
+          <div class="flex items-center gap-2">
+            <input id="periodStartInput" type="date" required class="flex-1 min-w-0 px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            <button id="btnPeriodThisWeek" type="button" class="shrink-0 px-2.5 py-2 rounded-lg font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition">이번 주</button>
+            <button id="btnPeriodNextWeek" type="button" class="shrink-0 px-2.5 py-2 rounded-lg font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition">다음 주</button>
+          </div>
+          <p id="periodStartHint" class="mt-1 text-[11px] text-slate-500"></p>
+        </div>
+        <div>
+          <label for="periodWeekCountSelect" class="block font-semibold text-slate-700 mb-1">주차 수</label>
+          <select id="periodWeekCountSelect" class="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"></select>
+        </div>
+        <div id="periodRangePreview" class="p-2.5 rounded-lg bg-indigo-50 text-indigo-900 font-semibold"></div>
+        <label id="periodShiftLabel" class="flex items-start gap-2 p-2.5 rounded-lg border border-slate-200 cursor-pointer">
+          <input id="periodShiftSlots" type="checkbox" class="mt-0.5 w-4 h-4 rounded accent-indigo-600" />
+          <span class="leading-relaxed text-slate-700">
+            이미 입력된 가능 시간도 같이 옮기기
+            <span class="block text-[11px] text-slate-500">시작 주를 바꿀 때만 적용돼요. (예: 일정을 통째로 1주 미룰 때)</span>
+          </span>
+        </label>
+      </div>
+      <div class="flex justify-end gap-2">
+        <button id="btnCancelPeriod" type="button" class="px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100">취소</button>
+        <button type="submit" class="px-4 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700">저장</button>
+      </div>
+    </form>
+  </div>
 
   <!-- GitHub Realtime Sync Modal -->
   <div id="syncModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 p-4">
@@ -271,7 +389,7 @@
         <!-- Tab 1: Config -->
         <div id="syncPanelConfig" class="space-y-4">
           <p class="text-slate-600 leading-relaxed">
-            다른 서비스 가입 없이 <strong>GitHub 저장소의 <code class="px-1 py-0.5 bg-slate-100 rounded font-mono">data</code> 브랜치</strong>에 시간표를 자동 저장합니다. 본인만 여기서 한 번 연결한 뒤 <strong>친구 초대 링크 복사</strong>를 카톡에 보내면, 친구는 아무 설정 없이 바로 입력하고 서로 실시간으로 볼 수 있습니다.
+            다른 서비스 가입 없이 <strong>GitHub 저장소의 <code class="px-1 py-0.5 bg-slate-100 rounded font-mono">data</code> 브랜치</strong>에 시간표를 자동 저장합니다. <strong>팀마다 파일이 따로</strong> 저장돼서 서로 섞이지 않아요. 한 번 연결한 뒤 <strong>이 팀 초대 링크 복사</strong>를 단톡방에 보내면, 친구는 링크만 누르면 <strong>바로 그 팀</strong>으로 들어와서 입력할 수 있습니다.
           </p>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -298,10 +416,10 @@
               연결하고 불러오기
             </button>
             <button id="btnPushAllToDb" type="button" class="px-3.5 py-2 rounded-lg font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition">
-              현재 화면 데이터를 GitHub에 올리기
+              현재 팀 데이터를 GitHub에 올리기
             </button>
             <button id="btnCopyInviteLinkModal" type="button" class="hidden px-3.5 py-2 rounded-lg font-semibold bg-slate-900 text-white hover:bg-slate-800 transition">
-              친구 초대 링크 복사
+              이 팀 초대 링크 복사
             </button>
             <button id="btnDisconnectDb" type="button" class="px-3 py-2 rounded-lg font-medium bg-white border border-slate-300 text-slate-600 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-300 transition">
               연동 해제
@@ -311,7 +429,7 @@
           <div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 space-y-1">
             <div class="font-bold">🔒 안전 안내</div>
             <p class="leading-relaxed text-amber-800">
-              친구 초대 링크에는 이 저장소 전용 토큰이 포함됩니다. <strong>신뢰하는 밴드 친구들 단톡방에만 공유</strong>해 주세요. (토큰 권한을 이 저장소 1개로만 제한하면 다른 저장소에는 전혀 접근할 수 없습니다.)
+              친구 초대 링크에는 이 저장소 전용 토큰이 포함됩니다. <strong>신뢰하는 밴드 친구들 단톡방에만 공유</strong>해 주세요. (토큰 권한을 이 저장소 1개로만 제한하면 다른 저장소에는 전혀 접근할 수 없습니다. 같은 저장소를 쓰는 팀끼리는 화면은 분리되지만 토큰은 공유됩니다.)
             </p>
           </div>
         </div>
@@ -324,7 +442,7 @@
             <li><strong>Repository access</strong>에서 <strong>Only select repositories</strong> 선택 → <code class="font-mono bg-white px-1 rounded">band-scheduler</code> 저장소 1개만 체크.</li>
             <li>아래 <strong>Permissions &gt; Repository permissions</strong>에서 <strong>Contents</strong> 항목을 <strong>Read and write</strong>로 변경.</li>
             <li>맨 아래 <strong>Generate token</strong> 클릭 → 생성된 <code class="font-mono bg-white px-1 rounded">github_pat_...</code> 토큰을 복사해서 1번 탭에 붙여넣고 <strong>연결하고 불러오기</strong> 클릭!</li>
-            <li>연결되면 <strong>친구 초대 링크 복사</strong> 버튼을 눌러 친구에게 보내세요. 친구는 링크만 누르면 끝입니다!</li>
+            <li>연결되면 팀마다 <strong>이 팀 초대 링크 복사</strong> 버튼을 눌러 해당 팀 친구들에게 보내세요. 친구는 링크만 누르면 끝입니다!</li>
           </ol>
         </div>
       </div>
@@ -341,7 +459,7 @@
         </button>
       </div>
       <p class="text-xs text-slate-600 leading-relaxed">
-        동기화 연결 없이도 현재 시간표 데이터를 코드로 복사해 친구들에게 보내거나, 친구가 보낸 코드를 붙여넣어 덮어쓰기 또는 병합할 수 있습니다.
+        동기화 연결 없이도 <strong>현재 팀</strong>의 시간표(전체 주차)를 코드로 복사해 친구들에게 보내거나, 친구가 보낸 코드를 붙여넣어 덮어쓰기 또는 병합할 수 있습니다.
       </p>
       <div class="space-y-1.5">
         <div class="flex items-center justify-between">
@@ -366,11 +484,14 @@
     <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-5 space-y-4">
       <h3 class="text-base font-bold text-slate-900">시간표 초기화</h3>
       <p class="text-xs text-slate-600 leading-relaxed">
-        원하는 초기화 방식을 선택하세요. 멤버 목록은 유지한 채 시간만 비우거나, 처음 예시 상태로 되돌릴 수 있습니다.
+        <strong id="resetTeamName">현재 팀</strong>에만 적용됩니다. 멤버 목록은 유지한 채 시간만 비우거나, 처음 예시 상태로 되돌릴 수 있습니다.
       </p>
       <div class="flex flex-col gap-2">
+        <button id="btnClearWeekSlots" type="button" class="w-full px-3.5 py-2 rounded-lg text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 transition">
+          보고 있는 주차의 시간만 비우기
+        </button>
         <button id="btnClearAllSlots" type="button" class="w-full px-3.5 py-2 rounded-lg text-xs font-semibold bg-rose-600 text-white hover:bg-rose-700 transition">
-          모든 멤버의 선택 시간만 비우기
+          모든 주차 · 모든 멤버의 시간 비우기
         </button>
         <button id="btnLoadSampleData" type="button" class="w-full px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-800 hover:bg-slate-200 transition">
           기본 예시 데이터로 되돌리기
@@ -411,7 +532,7 @@
   </div>
 
   <!-- Toast Notification -->
-  <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 pointer-events-none opacity-0 transition-opacity duration-200">
+  <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-[60] pointer-events-none opacity-0 transition-opacity duration-200">
     <div id="toastMessage" class="px-4 py-2.5 rounded-xl bg-slate-900 text-white text-xs sm:text-sm font-medium shadow-lg"></div>
   </div>
 
@@ -423,11 +544,20 @@
       // =========================================================================
       const DEFAULT_GITHUB_REPO = 'iseoggyu350-cpu/band-scheduler';
       const DATA_BRANCH = 'data';
-      const DATA_FILE_PATH = 'schedule.json';
+      // 기본 팀(예전 버전에서 쓰던 팀)은 기존 파일을 그대로 사용하고, 새 팀은 teams/<id>.json 에 따로 저장됩니다.
+      const LEGACY_DATA_FILE_PATH = 'schedule.json';
+      const TEAMS_DIR = 'teams';
+      const DEFAULT_TEAM_ID = 'default';
+      const DEFAULT_TEAM_NAME = '우리 밴드';
 
-      const STORAGE_KEY = 'band_rehearsal_scheduler_v1';
+      const LEGACY_STORAGE_KEY = 'band_rehearsal_scheduler_v1';
+      const TEAMS_INDEX_KEY = 'band_rehearsal_teams_v2';
+      const TEAM_STATE_PREFIX = 'band_rehearsal_team_v2_';
       const SYNC_CONFIG_KEY = 'band_rehearsal_github_v1';
+
       const DAYS = ['월', '화', '수', '목', '금', '토', '일'];
+      const DEFAULT_WEEK_COUNT = 4;
+      const MAX_WEEK_COUNT = 12;
       const PART_ICONS = {
         '보컬': '🎤',
         '기타': '🎸',
@@ -446,7 +576,9 @@
         { bg: '#f0fdfa', text: '#115e59', border: '#99f6e4', dot: '#14b8a6' },
         { bg: '#fef2f2', text: '#991b1b', border: '#fecaca', dot: '#ef4444' }
       ];
+      const TEAM_COLORS = ['#4f46e5', '#059669', '#e11d48', '#d97706', '#0284c7', '#7c3aed', '#0d9488', '#c026d3'];
 
+      // --- Encoding helpers ---
       function utf8ToBase64(str) {
         const bytes = new TextEncoder().encode(str);
         let binary = '';
@@ -471,6 +603,7 @@
         return utf8ToBase64(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
       }
 
+      // --- Repo helpers ---
       function inferRepoFromLocation() {
         try {
           const host = window.location.hostname || '';
@@ -505,67 +638,145 @@
         return isValidRepo(cfg.repo) && String(cfg.token || '').trim().length >= 10;
       }
 
-      function createDefaultState() {
-        return {
-          mode: 'overlap',
-          startHour: 9,
-          endHour: 23,
-          activeMemberId: 'm1',
-          minMembers: 0,
-          inspectedSlot: '2-19',
-          highlightedSlots: [],
-          members: [
-            {
-              id: 'm1',
-              name: '보컬',
-              part: '보컬',
-              colorIdx: 0,
-              included: true,
-              slots: ['0-18', '0-19', '0-20', '2-18', '2-19', '2-20', '2-21', '4-19', '4-20', '5-14', '5-15', '5-16', '5-17']
-            },
-            {
-              id: 'm2',
-              name: '기타',
-              part: '기타',
-              colorIdx: 1,
-              included: true,
-              slots: ['0-19', '0-20', '1-18', '1-19', '2-19', '2-20', '2-21', '4-18', '4-19', '5-14', '5-15', '5-16']
-            },
-            {
-              id: 'm3',
-              name: '베이스',
-              part: '베이스',
-              colorIdx: 2,
-              included: true,
-              slots: ['0-19', '0-20', '0-21', '2-19', '2-20', '2-21', '3-18', '3-19', '4-19', '4-20', '5-14', '5-15', '5-16', '6-15', '6-16']
-            },
-            {
-              id: 'm4',
-              name: '드럼',
-              part: '드럼',
-              colorIdx: 3,
-              included: true,
-              slots: ['1-19', '1-20', '2-19', '2-20', '2-21', '4-19', '4-20', '5-14', '5-15', '5-16', '5-17', '6-15', '6-16']
-            },
-            {
-              id: 'm5',
-              name: '건반',
-              part: '건반',
-              colorIdx: 4,
-              included: true,
-              slots: ['0-19', '0-20', '2-19', '2-20', '4-19', '4-20', '5-15', '5-16', '5-17']
-            }
-          ]
-        };
+      function isValidTeamId(id) {
+        return /^[A-Za-z0-9_-]{1,40}$/.test(String(id || ''));
       }
 
+      // --- Date helpers (모두 로컬 날짜 기준, 주는 월요일 시작) ---
+      function pad2(n) {
+        return String(n).padStart(2, '0');
+      }
+
+      function toDateStr(d) {
+        return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+      }
+
+      function parseDateStr(s) {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || ''));
+        if (!m) return null;
+        const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+        return isNaN(d.getTime()) ? null : d;
+      }
+
+      function isValidDateStr(s) {
+        const d = parseDateStr(s);
+        return !!d && toDateStr(d) === s;
+      }
+
+      function addDaysStr(s, n) {
+        const d = parseDateStr(s);
+        d.setDate(d.getDate() + n);
+        return toDateStr(d);
+      }
+
+      function mondayOf(date) {
+        const x = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+        x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+        return x;
+      }
+
+      function normalizeStartDate(s) {
+        return toDateStr(mondayOf(parseDateStr(s) || new Date()));
+      }
+
+      function currentMondayStr() {
+        return toDateStr(mondayOf(new Date()));
+      }
+
+      // 새 팀 기본 시작 주: 이번 주 (단, 일요일이면 이번 주가 거의 끝났으니 다음 주)
+      function defaultStartDateStr() {
+        const t = new Date();
+        t.setDate(t.getDate() + 1);
+        return toDateStr(mondayOf(t));
+      }
+
+      function todayStr() {
+        return toDateStr(new Date());
+      }
+
+      function dayIdxOfDateStr(s) {
+        return (parseDateStr(s).getDay() + 6) % 7;
+      }
+
+      function daysBetween(a, b) {
+        return Math.round((parseDateStr(b) - parseDateStr(a)) / 86400000);
+      }
+
+      function clampWeekCount(n) {
+        const v = parseInt(n, 10);
+        if (isNaN(v)) return DEFAULT_WEEK_COUNT;
+        return Math.min(MAX_WEEK_COUNT, Math.max(1, v));
+      }
+
+      function formatMD(s) {
+        const d = parseDateStr(s);
+        return `${d.getMonth() + 1}/${d.getDate()}`;
+      }
+
+      function formatDateLabel(s) {
+        return `${formatMD(s)}(${DAYS[dayIdxOfDateStr(s)]})`;
+      }
+
+      function formatHour(h) {
+        return String(h).padStart(2, '0') + ':00';
+      }
+
+      // --- Slot keys: "2026-11-23T19" = 2026년 11월 23일 19:00~20:00 ---
+      const SLOT_RE = /^(\d{4}-\d{2}-\d{2})T(\d{1,2})$/;
+      // 예전 버전(한 주만 있던 시절)의 "요일-시간" 형식. 예: "5-14" = 토요일 14시
+      const LEGACY_SLOT_RE = /^([0-6])-(\d{1,2})$/;
+
+      function makeSlotKey(dateStr, h) {
+        return `${dateStr}T${h}`;
+      }
+
+      function parseSlotKey(key) {
+        const m = SLOT_RE.exec(String(key || ''));
+        return m ? { date: m[1], hour: Number(m[2]) } : null;
+      }
+
+      function hasLegacySlots(slots) {
+        return Array.isArray(slots) && slots.some(s => LEGACY_SLOT_RE.test(String(s)));
+      }
+
+      function normalizeSlots(slots, startDate) {
+        if (!Array.isArray(slots)) return [];
+        const out = new Set();
+        slots.forEach(s => {
+          const str = String(s);
+          let m = SLOT_RE.exec(str);
+          if (m) {
+            const h = Number(m[2]);
+            if (h >= 0 && h < 24 && isValidDateStr(m[1])) out.add(makeSlotKey(m[1], h));
+            return;
+          }
+          m = LEGACY_SLOT_RE.exec(str);
+          if (m) {
+            const h = Number(m[2]);
+            if (h >= 0 && h < 24) out.add(makeSlotKey(addDaysStr(startDate, Number(m[1])), h));
+          }
+        });
+        return Array.from(out);
+      }
+
+      function shiftSlotKey(key, deltaDays) {
+        const p = parseSlotKey(key);
+        return p ? makeSlotKey(addDaysStr(p.date, deltaDays), p.hour) : key;
+      }
+
+      // --- Mutable runtime state ---
+      let teamsIndex = { activeTeamId: DEFAULT_TEAM_ID, teams: [] };
       let isDragging = false;
       let dragPaintValue = true;
       let renameTargetId = null;
+      let editTeamTargetId = null;
+      let editTeamColorIdx = 0;
       let toastTimer = null;
       let autoSyncTimer = null;
       let pushDebounceTimer = null;
+      const pendingSyncMemberIds = new Set();
       let isSyncing = false;
+      let fetchRequested = false;
       let writeQueue = Promise.resolve();
       let pendingWriteCount = 0;
       let localEditSeq = 0;
@@ -573,14 +784,21 @@
       let lastSyncTime = null;
       let lastSyncError = null;
       let joinedViaInviteLink = false;
-      let state = loadState();
-      let syncConfig = loadSyncConfig();
+      let dataBranchConfirmedFor = '';
+      let lastScrolledWeek = -1;
+      const migratedTeams = new Set();
+      // 주의: state 는 먼저 선언만 해두고(TDZ 방지) 초기화 함수가 끝난 뒤 채웁니다.
+      let state = null;
+      const launch = parseLaunchParams();
+      let syncConfig = loadSyncConfig(launch);
+      state = initTeamsAndState(launch);
 
-      function loadSyncConfig() {
-        let fromLink = null;
+      // --- Launch params (#gh=초대링크, #team=팀ID) ---
+      function parseLaunchParams() {
+        const result = { gh: null, inviteTeamId: null, inviteTeamName: '', hashTeamId: null };
         try {
-          let rawEncoded = '';
           const hash = window.location.hash || '';
+          let rawEncoded = '';
           const hashMatch = hash.match(/[#&]gh=([^&]+)/);
           if (hashMatch && hashMatch[1]) {
             rawEncoded = hashMatch[1];
@@ -589,21 +807,33 @@
             rawEncoded = params.get('gh') || '';
           }
           if (rawEncoded) {
-            const decodedStr = base64ToUtf8(decodeURIComponent(rawEncoded));
-            const decoded = JSON.parse(decodedStr);
+            const decoded = JSON.parse(base64ToUtf8(decodeURIComponent(rawEncoded)));
             if (decoded && decoded.token) {
-              fromLink = {
+              result.gh = {
                 repo: normalizeRepo(decoded.repo || ''),
                 token: String(decoded.token || '').trim()
               };
+              if (decoded.team && isValidTeamId(decoded.team)) {
+                result.inviteTeamId = String(decoded.team);
+                result.inviteTeamName = String(decoded.teamName || '').trim().slice(0, 20);
+              }
               // Remove token from address bar immediately for safety
               try {
                 history.replaceState(null, '', window.location.pathname);
               } catch (e) {}
             }
           }
+          const teamMatch = hash.match(/[#&]team=([^&]+)/);
+          if (teamMatch && teamMatch[1]) {
+            const id = decodeURIComponent(teamMatch[1]);
+            if (isValidTeamId(id)) result.hashTeamId = id;
+          }
         } catch (e) {}
+        return result;
+      }
 
+      function loadSyncConfig(launchInfo) {
+        const fromLink = launchInfo && launchInfo.gh;
         let saved = { repo: '', token: '', autoSync: true };
         try {
           const raw = localStorage.getItem(SYNC_CONFIG_KEY);
@@ -642,9 +872,12 @@
 
       function getInviteUrl() {
         if (!isConnectedConfig(syncConfig)) return '';
+        const meta = getTeamMeta(state.teamId);
         const payload = utf8ToBase64Url(JSON.stringify({
           repo: syncConfig.repo,
-          token: syncConfig.token
+          token: syncConfig.token,
+          team: state.teamId,
+          teamName: meta ? meta.name : ''
         }));
         let path = window.location.pathname || '/';
         if (!path.endsWith('/') && !path.endsWith('.html')) {
@@ -654,48 +887,323 @@
         return `${base}#gh=${payload}`;
       }
 
-      function loadState() {
+      // --- Team index (이 기기에 등록된 팀 목록) ---
+      function sanitizeTeamMeta(t, idx) {
+        return {
+          id: String(t.id),
+          name: String(t.name || '').trim().slice(0, 20) || '이름 없는 팀',
+          colorIdx: typeof t.colorIdx === 'number' ? Math.abs(t.colorIdx) % TEAM_COLORS.length : idx % TEAM_COLORS.length,
+          createdAt: t.createdAt || new Date().toISOString()
+        };
+      }
+
+      function loadTeamsIndexRaw() {
         try {
-          const raw = localStorage.getItem(STORAGE_KEY);
+          const raw = localStorage.getItem(TEAMS_INDEX_KEY);
           if (raw) {
             const parsed = JSON.parse(raw);
-            if (parsed && Array.isArray(parsed.members) && parsed.members.length > 0) {
-              return {
-                mode: parsed.mode === 'edit' ? 'edit' : 'overlap',
-                startHour: typeof parsed.startHour === 'number' ? parsed.startHour : 9,
-                endHour: typeof parsed.endHour === 'number' ? parsed.endHour : 23,
-                activeMemberId: parsed.activeMemberId || parsed.members[0].id,
-                minMembers: typeof parsed.minMembers === 'number' ? parsed.minMembers : 0,
-                inspectedSlot: parsed.inspectedSlot || null,
-                highlightedSlots: [],
-                members: parsed.members.map((m, idx) => ({
-                  id: String(m.id || ('m_' + idx + '_' + Date.now())),
-                  name: String(m.name || '멤버'),
-                  part: PART_ICONS[m.part] ? m.part : '세션',
-                  colorIdx: typeof m.colorIdx === 'number' ? m.colorIdx % MEMBER_COLORS.length : idx % MEMBER_COLORS.length,
-                  included: m.included !== false,
-                  slots: Array.isArray(m.slots) ? Array.from(new Set(m.slots)) : []
-                }))
-              };
+            if (parsed && Array.isArray(parsed.teams)) {
+              const seen = new Set();
+              const teams = parsed.teams
+                .filter(t => t && isValidTeamId(t.id) && !seen.has(t.id) && seen.add(t.id))
+                .map(sanitizeTeamMeta);
+              return { activeTeamId: String(parsed.activeTeamId || ''), teams };
             }
           }
         } catch (e) {}
-        return createDefaultState();
+        return null;
+      }
+
+      function saveTeamsIndex() {
+        try {
+          localStorage.setItem(TEAMS_INDEX_KEY, JSON.stringify(teamsIndex));
+        } catch (e) {}
+      }
+
+      // 다른 탭에서 바뀐 팀 목록을 덮어쓰지 않도록, 저장소의 최신 목록을 기준으로 수정합니다.
+      function mutateTeamsIndex(fn) {
+        const fresh = loadTeamsIndexRaw();
+        const base = fresh && fresh.teams.length > 0 ? fresh : { activeTeamId: teamsIndex.activeTeamId, teams: teamsIndex.teams.slice() };
+        base.activeTeamId = teamsIndex.activeTeamId;
+        const current = state && getTeamMetaFrom(teamsIndex, state.teamId);
+        if (current && !base.teams.some(t => t.id === current.id)) {
+          base.teams.push(Object.assign({}, current));
+        }
+        fn(base);
+        teamsIndex = base;
+        saveTeamsIndex();
+      }
+
+      function getTeamMetaFrom(index, teamId) {
+        return index.teams.find(t => t.id === teamId) || null;
+      }
+
+      function getTeamMeta(teamId) {
+        return getTeamMetaFrom(teamsIndex, teamId);
+      }
+
+      function currentTeamName() {
+        const meta = state ? getTeamMeta(state.teamId) : null;
+        return meta ? meta.name : DEFAULT_TEAM_NAME;
+      }
+
+      function nextTeamColorIdx(index) {
+        const used = new Set(index.teams.map(t => t.colorIdx));
+        for (let i = 0; i < TEAM_COLORS.length; i++) {
+          if (!used.has(i)) return i;
+        }
+        return index.teams.length % TEAM_COLORS.length;
+      }
+
+      function generateTeamId() {
+        let id = '';
+        do {
+          id = 't_' + (Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4));
+        } while (getTeamMeta(id) || id === DEFAULT_TEAM_ID);
+        return id;
+      }
+
+      function teamInitial(name) {
+        const chars = Array.from(String(name || '').trim());
+        return chars.length ? chars[0].toUpperCase() : '팀';
+      }
+
+      // --- Per-team state (팀마다 완전히 분리된 저장 공간) ---
+      function teamStateKey(teamId) {
+        return TEAM_STATE_PREFIX + teamId;
+      }
+
+      function createEmptyTeamState(teamId, startDate) {
+        return {
+          teamId,
+          startDate: startDate || defaultStartDateStr(),
+          weekCount: DEFAULT_WEEK_COUNT,
+          mode: 'overlap',
+          startHour: 9,
+          endHour: 23,
+          activeMemberId: null,
+          minMembers: 0,
+          inspectedSlot: null,
+          viewWeek: 0,
+          recScope: 'all',
+          highlightedSlots: [],
+          members: []
+        };
+      }
+
+      function createSampleTeamState(teamId, startDate, weekCount) {
+        const s = createEmptyTeamState(teamId, startDate);
+        if (weekCount) s.weekCount = clampWeekCount(weekCount);
+        const samples = [
+          { id: 'm1', name: '보컬', part: '보컬', colorIdx: 0, pattern: ['0-18', '0-19', '0-20', '2-18', '2-19', '2-20', '2-21', '4-19', '4-20', '5-14', '5-15', '5-16', '5-17'] },
+          { id: 'm2', name: '기타', part: '기타', colorIdx: 1, pattern: ['0-19', '0-20', '1-18', '1-19', '2-19', '2-20', '2-21', '4-18', '4-19', '5-14', '5-15', '5-16'] },
+          { id: 'm3', name: '베이스', part: '베이스', colorIdx: 2, pattern: ['0-19', '0-20', '0-21', '2-19', '2-20', '2-21', '3-18', '3-19', '4-19', '4-20', '5-14', '5-15', '5-16', '6-15', '6-16'] },
+          { id: 'm4', name: '드럼', part: '드럼', colorIdx: 3, pattern: ['1-19', '1-20', '2-19', '2-20', '2-21', '4-19', '4-20', '5-14', '5-15', '5-16', '5-17', '6-15', '6-16'] },
+          { id: 'm5', name: '건반', part: '건반', colorIdx: 4, pattern: ['0-19', '0-20', '2-19', '2-20', '4-19', '4-20', '5-15', '5-16', '5-17'] }
+        ];
+        s.members = samples.map(m => {
+          const slots = [];
+          for (let w = 0; w < s.weekCount; w++) {
+            m.pattern.forEach(p => {
+              const [d, h] = p.split('-').map(Number);
+              // 주차마다 조금씩 다르게: 2주차 수요일 드럼 불가, 3주차 토요일 기타 불가
+              if (w === 1 && m.id === 'm4' && d === 2) return;
+              if (w === 2 && m.id === 'm2' && d === 5) return;
+              slots.push(makeSlotKey(addDaysStr(s.startDate, w * 7 + d), h));
+            });
+          }
+          return { id: m.id, name: m.name, part: m.part, colorIdx: m.colorIdx, included: true, slots };
+        });
+        s.activeMemberId = 'm1';
+        s.inspectedSlot = makeSlotKey(addDaysStr(s.startDate, 2), 19);
+        return s;
+      }
+
+      function sanitizeMembers(list, startDate) {
+        const seen = new Set();
+        return list
+          .filter(m => m && typeof m === 'object')
+          .map((m, idx) => ({
+            id: String(m.id || ('m_' + idx + '_' + Date.now())),
+            name: String(m.name || '멤버'),
+            part: PART_ICONS[m.part] ? m.part : '세션',
+            colorIdx: typeof m.colorIdx === 'number' ? Math.abs(m.colorIdx) % MEMBER_COLORS.length : idx % MEMBER_COLORS.length,
+            included: m.included !== false,
+            slots: normalizeSlots(m.slots, startDate)
+          }))
+          .filter(m => !seen.has(m.id) && seen.add(m.id));
+      }
+
+      function sanitizeTeamState(p, teamId) {
+        const startDate = isValidDateStr(p.startDate) ? normalizeStartDate(p.startDate) : defaultStartDateStr();
+        const weekCount = clampWeekCount(p.weekCount);
+        const members = Array.isArray(p.members) ? sanitizeMembers(p.members, startDate) : [];
+        let startHour = typeof p.startHour === 'number' ? Math.min(20, Math.max(0, p.startHour)) : 9;
+        let endHour = typeof p.endHour === 'number' ? Math.min(24, Math.max(startHour + 1, p.endHour)) : 23;
+        const s = {
+          teamId,
+          startDate,
+          weekCount,
+          mode: p.mode === 'edit' ? 'edit' : 'overlap',
+          startHour,
+          endHour,
+          activeMemberId: p.activeMemberId || null,
+          minMembers: typeof p.minMembers === 'number' ? p.minMembers : 0,
+          inspectedSlot: SLOT_RE.test(String(p.inspectedSlot || '')) ? p.inspectedSlot : null,
+          viewWeek: Math.min(weekCount - 1, Math.max(0, parseInt(p.viewWeek, 10) || 0)),
+          recScope: p.recScope === 'week' ? 'week' : 'all',
+          highlightedSlots: [],
+          members
+        };
+        if (!members.some(m => m.id === s.activeMemberId)) {
+          s.activeMemberId = members[0] ? members[0].id : null;
+        }
+        return s;
+      }
+
+      function loadTeamState(teamId) {
+        try {
+          const raw = localStorage.getItem(teamStateKey(teamId));
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') return sanitizeTeamState(parsed, teamId);
+          }
+        } catch (e) {}
+        return null;
+      }
+
+      function writeTeamStateToStorage(s) {
+        try {
+          localStorage.setItem(teamStateKey(s.teamId), JSON.stringify({
+            startDate: s.startDate,
+            weekCount: s.weekCount,
+            mode: s.mode,
+            startHour: s.startHour,
+            endHour: s.endHour,
+            activeMemberId: s.activeMemberId,
+            minMembers: s.minMembers,
+            inspectedSlot: s.inspectedSlot,
+            viewWeek: s.viewWeek,
+            recScope: s.recScope,
+            members: s.members
+          }));
+        } catch (e) {}
       }
 
       function saveState() {
+        writeTeamStateToStorage(state);
+      }
+
+      function ensureTeamRegistered(teamId, name, colorIdx) {
+        if (!getTeamMeta(teamId)) {
+          mutateTeamsIndex(idx => {
+            if (!idx.teams.some(t => t.id === teamId)) {
+              idx.teams.push({
+                id: teamId,
+                name: String(name || '').trim().slice(0, 20) || (teamId === DEFAULT_TEAM_ID ? DEFAULT_TEAM_NAME : '초대받은 팀'),
+                colorIdx: typeof colorIdx === 'number' ? Math.abs(colorIdx) % TEAM_COLORS.length : nextTeamColorIdx(idx),
+                createdAt: new Date().toISOString()
+              });
+            }
+          });
+        }
+        if (!loadTeamState(teamId)) {
+          writeTeamStateToStorage(createEmptyTeamState(teamId));
+        }
+      }
+
+      function initTeamsAndState(launchInfo) {
+        const existing = loadTeamsIndexRaw();
+        const viaInvite = !!(launchInfo && launchInfo.gh && isConnectedConfig(syncConfig));
+        const inviteTeamId = viaInvite ? (launchInfo.inviteTeamId || DEFAULT_TEAM_ID) : null;
+        if (existing && existing.teams.length > 0) {
+          teamsIndex = existing;
+        } else {
+          // 처음 실행: 예전 한 주짜리 데이터가 있으면 기본 팀으로 옮겨오고, 없으면 예시 데이터로 시작
+          let legacyState = null;
+          try {
+            const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (parsed && Array.isArray(parsed.members) && parsed.members.length > 0) {
+                legacyState = sanitizeTeamState(Object.assign({}, parsed, {
+                  startDate: defaultStartDateStr(),
+                  weekCount: DEFAULT_WEEK_COUNT,
+                  viewWeek: 0,
+                  inspectedSlot: null
+                }), DEFAULT_TEAM_ID);
+              }
+            }
+          } catch (e) {}
+
+          teamsIndex = { activeTeamId: DEFAULT_TEAM_ID, teams: [] };
+          // 특정 팀 초대 링크로 처음 들어온 친구에게는 그 팀만 보이게 합니다. (다른 팀 데이터와 섞이지 않도록)
+          const onlyInvitedTeam = inviteTeamId && inviteTeamId !== DEFAULT_TEAM_ID && !legacyState;
+          if (!onlyInvitedTeam) {
+            teamsIndex.teams.push({ id: DEFAULT_TEAM_ID, name: DEFAULT_TEAM_NAME, colorIdx: 0, createdAt: new Date().toISOString() });
+            if (!loadTeamState(DEFAULT_TEAM_ID)) {
+              writeTeamStateToStorage(legacyState || (viaInvite ? createEmptyTeamState(DEFAULT_TEAM_ID) : createSampleTeamState(DEFAULT_TEAM_ID)));
+            }
+          }
+          saveTeamsIndex();
+        }
+
+        let targetId = null;
+        if (inviteTeamId) {
+          targetId = inviteTeamId;
+          ensureTeamRegistered(targetId, launchInfo.inviteTeamName, null);
+        } else if (launchInfo && launchInfo.hashTeamId) {
+          if (getTeamMeta(launchInfo.hashTeamId)) {
+            targetId = launchInfo.hashTeamId;
+          } else if (isConnectedConfig(syncConfig)) {
+            ensureTeamRegistered(launchInfo.hashTeamId, '', null);
+            targetId = launchInfo.hashTeamId;
+          }
+        }
+        if (teamsIndex.teams.length === 0) {
+          // 안전장치: 팀이 하나도 없으면 기본 팀을 만들어 둡니다.
+          ensureTeamRegistered(DEFAULT_TEAM_ID, DEFAULT_TEAM_NAME, 0);
+        }
+        if (!targetId || !getTeamMeta(targetId)) {
+          targetId = getTeamMeta(teamsIndex.activeTeamId) ? teamsIndex.activeTeamId : teamsIndex.teams[0].id;
+        }
+        teamsIndex.activeTeamId = targetId;
+        saveTeamsIndex();
+        return loadTeamState(targetId) || createEmptyTeamState(targetId);
+      }
+
+      function updateTeamHash() {
         try {
-          const toSave = {
-            mode: state.mode,
-            startHour: state.startHour,
-            endHour: state.endHour,
-            activeMemberId: state.activeMemberId,
-            minMembers: state.minMembers,
-            inspectedSlot: state.inspectedSlot,
-            members: state.members
-          };
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+          history.replaceState(null, '', window.location.pathname + '#team=' + encodeURIComponent(state.teamId));
         } catch (e) {}
+      }
+
+      // --- Week helpers (현재 팀 기준) ---
+      function getWeekDates(weekIdx) {
+        const start = addDaysStr(state.startDate, weekIdx * 7);
+        const dates = [];
+        for (let i = 0; i < 7; i++) dates.push(addDaysStr(start, i));
+        return dates;
+      }
+
+      function weekRangeText(weekIdx) {
+        const dates = getWeekDates(weekIdx);
+        return `${formatMD(dates[0])}~${formatMD(dates[6])}`;
+      }
+
+      function periodEndStr(s) {
+        return addDaysStr(s.startDate, s.weekCount * 7 - 1);
+      }
+
+      function weekIdxOfDate(dateStr) {
+        const diff = daysBetween(state.startDate, dateStr);
+        if (diff < 0) return -1;
+        const w = Math.floor(diff / 7);
+        return w < state.weekCount ? w : -1;
+      }
+
+      function isPastWeek(weekIdx) {
+        return getWeekDates(weekIdx)[6] < todayStr();
       }
 
       // --- GitHub API Sync Functions ---
@@ -709,6 +1217,14 @@
         return headers;
       }
 
+      function teamFilePath(teamId) {
+        return teamId === DEFAULT_TEAM_ID ? LEGACY_DATA_FILE_PATH : `${TEAMS_DIR}/${teamId}.json`;
+      }
+
+      function contentsUrl(path) {
+        return `https://api.github.com/repos/${syncConfig.repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`;
+      }
+
       function updateSyncUI() {
         const dot = document.getElementById('syncStatusDot');
         const label = document.getElementById('syncStatusLabel');
@@ -720,6 +1236,7 @@
         const btnInviteBanner = document.getElementById('btnCopyInviteLinkBanner');
         const btnInviteModal = document.getElementById('btnCopyInviteLinkModal');
         const modalStatus = document.getElementById('modalSyncStatus');
+        const teamNameHtml = `<strong>${escapeHtml(currentTeamName())}</strong>`;
 
         const connected = isConnectedConfig(syncConfig);
         const canShareLink = connected && /^https?:$/i.test(window.location.protocol);
@@ -737,7 +1254,7 @@
           label.textContent = 'GitHub 동기화 연결';
           btnNow.classList.add('hidden');
           bannerDot.className = 'w-2 h-2 rounded-full bg-amber-500 shrink-0';
-          bannerText.innerHTML = '현재 로컬 모드입니다. <strong>GitHub 동기화 연결</strong>에 저장소 전용 토큰을 1번 입력하고 친구 초대 링크를 공유하면 실시간 동기화됩니다.';
+          bannerText.innerHTML = `현재 로컬 모드입니다 (팀: ${teamNameHtml}). <strong>GitHub 동기화 연결</strong>에 저장소 전용 토큰을 1번 입력하고 팀 초대 링크를 공유하면 실시간 동기화됩니다.`;
           btnBanner.textContent = 'GitHub 연결 방법';
           modalStatus.textContent = '상태: 미연동';
           modalStatus.className = 'text-[11px] font-semibold text-slate-500';
@@ -754,7 +1271,7 @@
           label.textContent = '연결 오류';
           spinner.classList.remove('animate-spin');
           bannerDot.className = 'w-2 h-2 rounded-full bg-rose-500 shrink-0';
-          bannerText.textContent = `GitHub 동기화 실패 (${lastSyncError}) — 변경사항은 로컬에 저장되었습니다.`;
+          bannerText.textContent = `GitHub 동기화 실패 (${lastSyncError}) — 변경사항은 이 기기에 저장되었습니다.`;
           btnBanner.textContent = '설정 확인';
           modalStatus.textContent = `오류: ${lastSyncError}`;
           modalStatus.className = 'text-[11px] font-semibold text-rose-600';
@@ -764,54 +1281,95 @@
           spinner.classList.remove('animate-spin');
           const timeStr = lastSyncTime ? lastSyncTime.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
           bannerDot.className = 'w-2 h-2 rounded-full bg-emerald-500 shrink-0';
-          bannerText.innerHTML = `GitHub 실시간 동기화 중${timeStr ? ` (최근 동기화: <strong>${timeStr}</strong>)` : ''}. 친구가 입력한 시간이 자동으로 반영됩니다.`;
+          bannerText.innerHTML = `${teamNameHtml} 팀 GitHub 실시간 동기화 중${timeStr ? ` (최근 동기화: <strong>${timeStr}</strong>)` : ''}. 이 팀 친구들이 입력한 시간이 자동으로 반영됩니다.`;
           btnBanner.textContent = '연동 관리';
           modalStatus.textContent = timeStr ? `연동됨 (${timeStr})` : '연동됨';
           modalStatus.className = 'text-[11px] font-semibold text-emerald-700';
         }
       }
 
-      function applyRemoteMembersMap(remoteObj) {
-        if (!remoteObj || typeof remoteObj !== 'object') return;
+      // 원격 파일(예전 형식 포함)을 v2 형식 { team, members } 으로 정리합니다.
+      function normalizeRemoteDoc(parsed, fallbackStartDate) {
+        const obj = parsed && typeof parsed === 'object' ? parsed : {};
+        let team = null;
+        if (obj.team && typeof obj.team === 'object') {
+          team = {};
+          if (typeof obj.team.name === 'string' && obj.team.name.trim()) team.name = obj.team.name.trim().slice(0, 20);
+          if (typeof obj.team.colorIdx === 'number') team.colorIdx = Math.abs(obj.team.colorIdx) % TEAM_COLORS.length;
+          team.startDate = isValidDateStr(obj.team.startDate) ? normalizeStartDate(obj.team.startDate) : fallbackStartDate;
+          team.weekCount = clampWeekCount(obj.team.weekCount);
+        }
+        const startDate = (team && team.startDate) || fallbackStartDate;
+        const rawMembers = obj.members && typeof obj.members === 'object'
+          ? obj.members
+          : (obj.team ? {} : obj);
+        let wasLegacy = !team;
+        const members = {};
+        Object.keys(rawMembers).forEach((key, idx) => {
+          const m = rawMembers[key];
+          if (!m || typeof m !== 'object' || Array.isArray(m)) return;
+          if (hasLegacySlots(m.slots)) wasLegacy = true;
+          const id = String(m.id || key);
+          members[id] = {
+            id,
+            name: String(m.name || '멤버'),
+            part: PART_ICONS[m.part] ? m.part : '세션',
+            colorIdx: typeof m.colorIdx === 'number' ? Math.abs(m.colorIdx) % MEMBER_COLORS.length : idx % MEMBER_COLORS.length,
+            order: typeof m.order === 'number' ? m.order : idx,
+            slots: normalizeSlots(m.slots, startDate),
+            updatedAt: m.updatedAt || null
+          };
+        });
+        return { team, members, wasLegacy };
+      }
+
+      function applyRemoteDoc(doc) {
+        if (!doc) return;
+        if (doc.team) {
+          if (doc.team.startDate) state.startDate = doc.team.startDate;
+          if (doc.team.weekCount) state.weekCount = doc.team.weekCount;
+          state.viewWeek = Math.min(state.weekCount - 1, Math.max(0, state.viewWeek));
+          const meta = getTeamMeta(state.teamId);
+          const nameChanged = doc.team.name && meta && doc.team.name !== meta.name;
+          const colorChanged = typeof doc.team.colorIdx === 'number' && meta && doc.team.colorIdx !== meta.colorIdx;
+          if (nameChanged || colorChanged) {
+            mutateTeamsIndex(idx => {
+              const t = idx.teams.find(x => x.id === state.teamId);
+              if (!t) return;
+              if (doc.team.name) t.name = doc.team.name;
+              if (typeof doc.team.colorIdx === 'number') t.colorIdx = doc.team.colorIdx;
+            });
+          }
+        }
+
         const includedMap = {};
         state.members.forEach(m => { includedMap[m.id] = m.included; });
-
-        const list = Object.keys(remoteObj)
-          .map((key, idx) => {
-            const m = remoteObj[key];
-            if (!m || typeof m !== 'object') return null;
-            return {
-              id: String(m.id || key),
-              name: String(m.name || '멤버'),
-              part: PART_ICONS[m.part] ? m.part : '세션',
-              colorIdx: typeof m.colorIdx === 'number' ? m.colorIdx % MEMBER_COLORS.length : idx % MEMBER_COLORS.length,
-              order: typeof m.order === 'number' ? m.order : idx,
-              included: includedMap[m.id || key] !== undefined ? includedMap[m.id || key] : true,
-              slots: Array.isArray(m.slots) ? Array.from(new Set(m.slots)) : []
-            };
-          })
-          .filter(Boolean)
-          .sort((a, b) => a.order - b.order);
-
-        if (list.length === 0) return;
-
-        state.members = list;
+        state.members = Object.keys(doc.members)
+          .map(key => doc.members[key])
+          .sort((a, b) => a.order - b.order)
+          .map(m => ({
+            id: m.id,
+            name: m.name,
+            part: m.part,
+            colorIdx: m.colorIdx,
+            included: includedMap[m.id] !== undefined ? includedMap[m.id] : true,
+            slots: m.slots.slice()
+          }));
         if (!state.members.some(m => m.id === state.activeMemberId)) {
-          state.activeMemberId = state.members[0].id;
+          state.activeMemberId = state.members[0] ? state.members[0].id : null;
         }
         saveState();
         renderAll();
       }
 
-      async function readScheduleFileFromGitHub(withAuth) {
-        const url = `https://api.github.com/repos/${syncConfig.repo}/contents/${DATA_FILE_PATH}?ref=${DATA_BRANCH}&t=${Date.now()}`;
-        const res = await fetch(url, {
+      async function readTeamDoc(filePath, fallbackStartDate) {
+        const res = await fetch(`${contentsUrl(filePath)}?ref=${DATA_BRANCH}&t=${Date.now()}`, {
           method: 'GET',
-          headers: ghHeaders(withAuth),
+          headers: ghHeaders(true),
           cache: 'no-store'
         });
         if (res.status === 404) {
-          return { exists: false, sha: null, members: null };
+          return { exists: false, sha: null, doc: null, wasLegacy: false };
         }
         if (res.status === 401 || res.status === 403) {
           throw new Error('토큰 권한 오류 (HTTP ' + res.status + ')');
@@ -820,19 +1378,28 @@
           throw new Error('HTTP ' + res.status);
         }
         const json = await res.json();
-        const rawText = base64ToUtf8(json.content || '').replace(/^\uFEFF/, '');
-        const parsed = JSON.parse(rawText || '{}');
-        const members = parsed && parsed.members && typeof parsed.members === 'object' ? parsed.members : parsed;
-        return { exists: true, sha: json.sha, members };
+        const rawText = base64ToUtf8(json.content || '').replace(/^﻿/, '');
+        let parsed;
+        try {
+          parsed = JSON.parse(rawText || '{}');
+        } catch (e) {
+          throw new Error('저장된 파일 형식 오류');
+        }
+        const doc = normalizeRemoteDoc(parsed, fallbackStartDate);
+        return { exists: true, sha: json.sha, doc, wasLegacy: doc.wasLegacy };
       }
 
       async function ensureDataBranchExists() {
+        if (dataBranchConfirmedFor === syncConfig.repo) return true;
         const checkRes = await fetch(`https://api.github.com/repos/${syncConfig.repo}/git/ref/heads/${DATA_BRANCH}`, {
           method: 'GET',
           headers: ghHeaders(true),
           cache: 'no-store'
         });
-        if (checkRes.ok) return true;
+        if (checkRes.ok) {
+          dataBranchConfirmedFor = syncConfig.repo;
+          return true;
+        }
 
         // Get default branch head SHA
         const repoRes = await fetch(`https://api.github.com/repos/${syncConfig.repo}`, {
@@ -865,25 +1432,72 @@
         if (!createRes.ok && createRes.status !== 422) {
           throw new Error('data 브랜치 생성 실패 (' + createRes.status + ')');
         }
+        dataBranchConfirmedFor = syncConfig.repo;
         return true;
       }
 
-      async function writeScheduleFileWithMerge(mutatorFn, commitMsg) {
+      // 팀 하나의 스냅샷 (요청을 보낸 시점 기준). 쓰기 도중 팀을 바꿔도 원래 팀 파일에만 저장됩니다.
+      function buildDocFromState(s) {
+        const meta = getTeamMeta(s.teamId);
+        const now = new Date().toISOString();
+        const members = {};
+        s.members.forEach((m, idx) => {
+          members[m.id] = {
+            id: m.id,
+            name: m.name,
+            part: m.part,
+            colorIdx: m.colorIdx,
+            order: idx,
+            slots: m.slots.slice(),
+            updatedAt: now
+          };
+        });
+        return {
+          team: {
+            name: meta ? meta.name : DEFAULT_TEAM_NAME,
+            colorIdx: meta ? meta.colorIdx : 0,
+            startDate: s.startDate,
+            weekCount: s.weekCount
+          },
+          members
+        };
+      }
+
+      function makeTeamCtx(teamState) {
+        const s = teamState || state;
+        return {
+          teamId: s.teamId,
+          teamName: (getTeamMeta(s.teamId) || {}).name || DEFAULT_TEAM_NAME,
+          filePath: teamFilePath(s.teamId),
+          fallbackDoc: buildDocFromState(s)
+        };
+      }
+
+      function cloneDoc(doc) {
+        return JSON.parse(JSON.stringify(doc));
+      }
+
+      // mutatorFn(doc, exists) 는 수정된 doc 를 돌려주거나, 쓸 필요가 없으면 null 을 돌려줍니다.
+      async function writeTeamDoc(ctx, mutatorFn, commitMsg) {
         await ensureDataBranchExists();
         let lastErr = null;
         for (let attempt = 0; attempt < 3; attempt++) {
-          const remote = await readScheduleFileFromGitHub(true);
-          const currentMap = (remote.exists && remote.members && typeof remote.members === 'object')
-            ? Object.assign({}, remote.members)
-            : buildMembersMapFromLocal();
+          const remote = await readTeamDoc(ctx.filePath, ctx.fallbackDoc.team.startDate);
+          const base = remote.exists
+            ? { team: remote.doc.team, members: remote.doc.members }
+            : cloneDoc(ctx.fallbackDoc);
+          const next = mutatorFn(base, remote.exists);
+          if (!next) return null;
 
-          const nextMap = mutatorFn(currentMap);
+          const team = Object.assign({ id: ctx.teamId }, ctx.fallbackDoc.team, next.team || {}, { updatedAt: new Date().toISOString() });
           const filePayload = {
+            version: 2,
             updatedAt: new Date().toISOString(),
-            members: nextMap
+            team,
+            members: next.members || {}
           };
           const body = {
-            message: commitMsg || 'Update band schedule',
+            message: commitMsg || `[${ctx.teamName}] Update band schedule`,
             content: utf8ToBase64(JSON.stringify(filePayload, null, 2)),
             branch: DATA_BRANCH
           };
@@ -891,7 +1505,7 @@
             body.sha = remote.sha;
           }
 
-          const putRes = await fetch(`https://api.github.com/repos/${syncConfig.repo}/contents/${DATA_FILE_PATH}`, {
+          const putRes = await fetch(contentsUrl(ctx.filePath), {
             method: 'PUT',
             headers: Object.assign({ 'Content-Type': 'application/json' }, ghHeaders(true)),
             body: JSON.stringify(body)
@@ -907,31 +1521,9 @@
           if (!putRes.ok) {
             throw new Error('저장 실패 (HTTP ' + putRes.status + ')');
           }
-
-          const putJson = await putRes.json();
-          if (putJson && putJson.content && putJson.content.sha) {
-            lastRemoteSha = putJson.content.sha;
-          }
-          return nextMap;
+          return filePayload;
         }
         throw lastErr || new Error('저장 충돌이 반복되었습니다');
-      }
-
-      function buildMembersMapFromLocal() {
-        const map = {};
-        const now = new Date().toISOString();
-        state.members.forEach((m, idx) => {
-          map[m.id] = {
-            id: m.id,
-            name: m.name,
-            part: m.part,
-            colorIdx: m.colorIdx,
-            order: idx,
-            slots: m.slots.slice(),
-            updatedAt: now
-          };
-        });
-        return map;
       }
 
       function enqueueWrite(taskFn, successToast) {
@@ -953,6 +1545,7 @@
           } finally {
             pendingWriteCount = Math.max(0, pendingWriteCount - 1);
             updateSyncUI();
+            maybeRunRequestedFetch();
           }
         };
 
@@ -961,92 +1554,123 @@
         return next;
       }
 
+      function mutateRemote(ctx, mutatorFn, commitMsg, successToast) {
+        if (!isConnectedConfig(syncConfig)) return Promise.resolve(false);
+        return enqueueWrite(() => writeTeamDoc(ctx, mutatorFn, commitMsg), successToast);
+      }
+
+      function maybeRunRequestedFetch() {
+        if (fetchRequested && !isSyncing && pendingWriteCount === 0 && !pushDebounceTimer && !isDragging) {
+          fetchRequested = false;
+          setTimeout(() => fetchFromDb(true), 50);
+        }
+      }
+
       async function fetchFromDb(silent) {
-        if (!isConnectedConfig(syncConfig) || isSyncing || pendingWriteCount > 0) return false;
+        if (!isConnectedConfig(syncConfig)) return false;
+        if (isSyncing || pendingWriteCount > 0) {
+          fetchRequested = true;
+          return false;
+        }
+        const reqTeamId = state.teamId;
         const reqSeq = localEditSeq;
         isSyncing = true;
         updateSyncUI();
         try {
-          const remote = await readScheduleFileFromGitHub(true);
+          const remote = await readTeamDoc(teamFilePath(reqTeamId), state.startDate);
+          if (state.teamId !== reqTeamId) {
+            // 불러오는 사이에 다른 팀으로 바뀜 → 결과 버리고 새 팀으로 다시 불러오기
+            fetchRequested = true;
+            return true;
+          }
           lastSyncTime = new Date();
           lastSyncError = null;
           if (reqSeq !== localEditSeq || isDragging || pushDebounceTimer || pendingWriteCount > 0) {
             return true;
           }
-          if (remote.exists && remote.members && Object.keys(remote.members).length > 0) {
+          if (remote.exists) {
             const changed = remote.sha !== lastRemoteSha;
             lastRemoteSha = remote.sha;
             if (changed || !silent) {
-              applyRemoteMembersMap(remote.members);
+              applyRemoteDoc(remote.doc);
             }
-            if (!silent) showToast(`GitHub에서 ${Object.keys(remote.members).length}명의 시간표를 불러왔습니다!`);
-          } else {
-            // Auto-initialize data branch with current schedule on first explicit connect
-            if (!silent) {
-              isSyncing = false;
-              await replaceAllInDb('GitHub에 시간표 초기 데이터를 생성하고 연동했습니다!');
-              return true;
+            if (remote.wasLegacy && !migratedTeams.has(reqTeamId)) {
+              // 예전 한 주짜리 형식 → 여러 주차(날짜) 형식으로 저장소 파일을 한 번 업그레이드
+              migratedTeams.add(reqTeamId);
+              mutateRemote(makeTeamCtx(), (doc, exists) => (exists ? doc : null), `[${currentTeamName()}] Upgrade schedule to multi-week format`, null);
             }
+            if (!silent) showToast(`GitHub에서 '${currentTeamName()}' 팀 시간표(${Object.keys(remote.doc.members).length}명)를 불러왔습니다!`);
+          } else if (!silent || state.members.length > 0) {
+            // 이 팀 파일이 아직 저장소에 없음 → 지금 데이터로 처음 만들기
+            isSyncing = false;
+            await replaceAllInDb(silent ? null : `GitHub에 '${currentTeamName()}' 팀 시간표를 처음 저장하고 연동했습니다!`);
+            return true;
           }
           return true;
         } catch (err) {
-          lastSyncError = err.message || '연결 오류';
-          if (!silent) showToast('GitHub 연결 실패: ' + lastSyncError);
+          if (state.teamId === reqTeamId) {
+            lastSyncError = err.message || '연결 오류';
+            if (!silent) showToast('GitHub 연결 실패: ' + lastSyncError);
+          }
           return false;
         } finally {
           isSyncing = false;
           updateSyncUI();
+          maybeRunRequestedFetch();
         }
       }
 
-      function putMemberToDb(member) {
-        if (!member || !isConnectedConfig(syncConfig)) return Promise.resolve(false);
-        const snapshot = {
-          id: member.id,
-          name: member.name,
-          part: member.part,
-          colorIdx: member.colorIdx,
-          order: Math.max(0, state.members.findIndex(m => m.id === member.id)),
-          slots: member.slots.slice(),
-          updatedAt: new Date().toISOString()
-        };
-        return enqueueWrite(() =>
-          writeScheduleFileWithMerge((currentMap) => {
-            currentMap[snapshot.id] = snapshot;
-            return currentMap;
-          }, `Update ${snapshot.name}`),
-          null
-        );
-      }
-
-      function deleteMemberFromDb(memberId) {
-        if (!memberId || !isConnectedConfig(syncConfig)) return Promise.resolve(false);
-        return enqueueWrite(() =>
-          writeScheduleFileWithMerge((currentMap) => {
-            delete currentMap[memberId];
-            return currentMap;
-          }, `Remove member ${memberId}`),
-          null
-        );
-      }
-
-      function replaceAllInDb(successToast) {
-        if (!isConnectedConfig(syncConfig)) return Promise.resolve(false);
-        const fullMap = buildMembersMapFromLocal();
-        return enqueueWrite(() =>
-          writeScheduleFileWithMerge(() => fullMap, 'Sync all band schedules'),
-          successToast
-        );
+      function flushPendingMemberSync() {
+        if (pushDebounceTimer) {
+          clearTimeout(pushDebounceTimer);
+          pushDebounceTimer = null;
+        }
+        const ids = Array.from(pendingSyncMemberIds);
+        pendingSyncMemberIds.clear();
+        if (ids.length === 0 || !isConnectedConfig(syncConfig)) return;
+        const ctx = makeTeamCtx();
+        const snapshots = ids.map(id => ctx.fallbackDoc.members[id]).filter(Boolean);
+        if (snapshots.length === 0) return;
+        mutateRemote(ctx, (doc) => {
+          snapshots.forEach(snap => { doc.members[snap.id] = snap; });
+          return doc;
+        }, `[${ctx.teamName}] Update ${snapshots.map(s => s.name).join(', ')}`, null);
       }
 
       function scheduleMemberSync(member) {
         if (!member || !isConnectedConfig(syncConfig)) return;
         localEditSeq++;
+        pendingSyncMemberIds.add(member.id);
         if (pushDebounceTimer) clearTimeout(pushDebounceTimer);
-        pushDebounceTimer = setTimeout(() => {
-          pushDebounceTimer = null;
-          putMemberToDb(member);
-        }, 450);
+        pushDebounceTimer = setTimeout(flushPendingMemberSync, 450);
+      }
+
+      function deleteMemberFromDb(memberId) {
+        if (!memberId) return Promise.resolve(false);
+        const ctx = makeTeamCtx();
+        return mutateRemote(ctx, (doc) => {
+          delete doc.members[memberId];
+          return doc;
+        }, `[${ctx.teamName}] Remove member ${memberId}`, null);
+      }
+
+      function replaceAllInDb(successToast) {
+        const ctx = makeTeamCtx();
+        return mutateRemote(ctx, () => cloneDoc(ctx.fallbackDoc), `[${ctx.teamName}] Sync all band schedules`, successToast);
+      }
+
+      function pushTeamInfo(teamState, extraMutator, commitMsg, successToast) {
+        const ctx = makeTeamCtx(teamState);
+        return mutateRemote(ctx, (doc) => {
+          if (extraMutator) extraMutator(doc);
+          doc.team = Object.assign({}, doc.team || {}, ctx.fallbackDoc.team);
+          return doc;
+        }, commitMsg || `[${ctx.teamName}] Update team settings`, successToast);
+      }
+
+      function ensureRemoteTeamDoc(teamState) {
+        const ctx = makeTeamCtx(teamState);
+        return mutateRemote(ctx, (doc, exists) => (exists ? null : doc), `[${ctx.teamName}] Create team`, null);
       }
 
       function restartAutoSync() {
@@ -1061,6 +1685,97 @@
             }
           }, 4000);
         }
+      }
+
+      // --- Team switching (팀 = 완전히 다른 세션) ---
+      function switchTeam(teamId, opts) {
+        const options = opts || {};
+        if (!getTeamMeta(teamId)) return;
+        if (teamId === state.teamId && !options.force) {
+          closeTeamModal();
+          return;
+        }
+        flushPendingMemberSync();
+        isDragging = false;
+        saveState();
+
+        state = loadTeamState(teamId) || createEmptyTeamState(teamId);
+        teamsIndex.activeTeamId = teamId;
+        mutateTeamsIndex(() => {});
+        lastRemoteSha = null;
+        lastSyncTime = null;
+        lastSyncError = null;
+        lastScrolledWeek = -1;
+        localEditSeq++;
+
+        updateTeamHash();
+        if (!options.keepModal) closeTeamModal();
+        playTeamSwitchAnimation();
+        renderAll();
+        if (!options.silentToast) showToast(`'${currentTeamName()}' 팀으로 전환했습니다.`);
+        if (isConnectedConfig(syncConfig)) fetchFromDb(true);
+      }
+
+      function playTeamSwitchAnimation() {
+        const main = document.getElementById('appMain');
+        main.classList.remove('team-switch-in');
+        void main.offsetWidth;
+        main.classList.add('team-switch-in');
+      }
+
+      function createTeam(name) {
+        const clean = String(name || '').trim().slice(0, 20);
+        if (!clean) {
+          showToast('새 팀 이름을 입력해주세요.');
+          return;
+        }
+        const id = generateTeamId();
+        mutateTeamsIndex(idx => {
+          idx.teams.push({ id, name: clean, colorIdx: nextTeamColorIdx(idx), createdAt: new Date().toISOString() });
+        });
+        const newState = createEmptyTeamState(id);
+        newState.mode = 'edit';
+        writeTeamStateToStorage(newState);
+        switchTeam(id, { silentToast: true });
+        if (isConnectedConfig(syncConfig)) ensureRemoteTeamDoc(state);
+        showToast(`'${clean}' 팀을 만들었습니다! 멤버를 추가해보세요.`);
+        setTimeout(() => {
+          const input = document.getElementById('newMemberName');
+          if (input) input.focus();
+        }, 50);
+      }
+
+      function deleteTeam(teamId) {
+        const meta = getTeamMeta(teamId);
+        if (!meta) return;
+        if (teamsIndex.teams.length <= 1) {
+          showToast('최소 1개의 팀은 있어야 합니다.');
+          return;
+        }
+        const connected = isConnectedConfig(syncConfig);
+        const msg = connected
+          ? `'${meta.name}' 팀을 이 기기의 팀 목록에서 뺄까요?\n\nGitHub에 저장된 이 팀의 시간표는 그대로 남아 있어서, 나중에 '저장소에서 팀 찾기'나 초대 링크로 다시 불러올 수 있어요.`
+          : `'${meta.name}' 팀을 삭제할까요?\n\n이 기기에 저장된 이 팀의 멤버와 시간표가 모두 지워집니다.`;
+        if (!window.confirm(msg)) return;
+
+        if (teamId === state.teamId) {
+          const other = teamsIndex.teams.find(t => t.id !== teamId);
+          switchTeam(other.id, { silentToast: true, keepModal: true });
+        }
+        if (connected) {
+          // 지우기 전에 저장소에 이 팀 파일이 꼭 남아있도록 보장
+          const teamState = loadTeamState(teamId);
+          if (teamState) ensureRemoteTeamDoc(teamState);
+        }
+        mutateTeamsIndex(idx => {
+          idx.teams = idx.teams.filter(t => t.id !== teamId);
+        });
+        try {
+          localStorage.removeItem(teamStateKey(teamId));
+        } catch (e) {}
+        renderTeamList();
+        renderHeader();
+        showToast(`'${meta.name}' 팀을 목록에서 삭제했습니다.`);
       }
 
       // --- Utilities ---
@@ -1105,10 +1820,6 @@
         document.body.removeChild(ta);
       }
 
-      function formatHour(h) {
-        return String(h).padStart(2, '0') + ':00';
-      }
-
       function getIncludedMembers() {
         return state.members.filter(m => m.included);
       }
@@ -1117,18 +1828,19 @@
         return state.members.find(m => m.id === state.activeMemberId) || state.members[0] || null;
       }
 
-      function getSlotAvailability(slotKey) {
+      // 포함된 멤버들의 시간을 Set 으로 한 번만 만들어서 빠르게 조회합니다.
+      function makeAvailabilityLookup() {
         const included = getIncludedMembers();
-        const available = [];
-        const unavailable = [];
-        included.forEach(m => {
-          if (m.slots.includes(slotKey)) {
-            available.push(m);
-          } else {
-            unavailable.push(m);
-          }
-        });
-        return { available, unavailable, total: included.length };
+        const sets = included.map(m => ({ m, set: new Set(m.slots) }));
+        return function (slotKey) {
+          const available = [];
+          const unavailable = [];
+          sets.forEach(({ m, set }) => {
+            if (set.has(slotKey)) available.push(m);
+            else unavailable.push(m);
+          });
+          return { available, unavailable, total: included.length };
+        };
       }
 
       function getOverlapStyle(count, total) {
@@ -1151,19 +1863,19 @@
         return { bg: '#ecfdf5', text: '#059669', border: '#d1fae5', isAll: false };
       }
 
-      function computeRecommendedBlocks() {
-        const included = getIncludedMembers();
-        const total = included.length;
-        if (total === 0) return [];
+      function getEffectiveMin(total) {
+        return state.minMembers > 0
+          ? Math.min(state.minMembers, total)
+          : Math.max(1, Math.min(total, total >= 2 ? Math.max(2, total - 1) : 1));
+      }
 
-        const effectiveMin = state.minMembers > 0 ? Math.min(state.minMembers, total) : Math.max(1, Math.min(total, total >= 2 ? Math.max(2, total - 1) : 1));
+      function computeBlocksForWeek(weekIdx, lookup, effectiveMin) {
         const blocks = [];
-
-        for (let d = 0; d < 7; d++) {
+        getWeekDates(weekIdx).forEach((dateStr, d) => {
           let currentBlock = null;
           for (let h = state.startHour; h < state.endHour; h++) {
-            const key = `${d}-${h}`;
-            const { available } = getSlotAvailability(key);
+            const key = makeSlotKey(dateStr, h);
+            const { available, total } = lookup(key);
             const idsKey = available.map(m => m.id).sort().join(',');
 
             if (available.length >= effectiveMin) {
@@ -1173,38 +1885,164 @@
               } else {
                 if (currentBlock) blocks.push(currentBlock);
                 currentBlock = {
+                  weekIdx,
+                  dateStr,
                   dayIdx: d,
                   startHour: h,
                   endHour: h + 1,
                   count: available.length,
-                  total: total,
+                  total,
                   members: available,
-                  idsKey: idsKey,
+                  idsKey,
                   slots: [key]
                 };
               }
-            } else {
-              if (currentBlock) {
-                blocks.push(currentBlock);
-                currentBlock = null;
-              }
+            } else if (currentBlock) {
+              blocks.push(currentBlock);
+              currentBlock = null;
             }
           }
           if (currentBlock) blocks.push(currentBlock);
-        }
+        });
 
         blocks.sort((a, b) => {
           if (b.count !== a.count) return b.count - a.count;
           const durDiff = (b.endHour - b.startHour) - (a.endHour - a.startHour);
           if (durDiff !== 0) return durDiff;
-          if (a.dayIdx !== b.dayIdx) return a.dayIdx - b.dayIdx;
+          if (a.dateStr !== b.dateStr) return a.dateStr < b.dateStr ? -1 : 1;
           return a.startHour - b.startHour;
         });
-
         return blocks;
       }
 
+      // 주차별 추천 블록 목록: [{ weekIdx, blocks }]
+      function computeRecommendationsByWeek() {
+        const included = getIncludedMembers();
+        const total = included.length;
+        const result = [];
+        if (total === 0) {
+          for (let w = 0; w < state.weekCount; w++) result.push({ weekIdx: w, blocks: [] });
+          return result;
+        }
+        const lookup = makeAvailabilityLookup();
+        const effectiveMin = getEffectiveMin(total);
+        for (let w = 0; w < state.weekCount; w++) {
+          result.push({ weekIdx: w, blocks: computeBlocksForWeek(w, lookup, effectiveMin) });
+        }
+        return result;
+      }
+
+      function computeWeekSummaries() {
+        const lookup = makeAvailabilityLookup();
+        const total = getIncludedMembers().length;
+        const summaries = [];
+        for (let w = 0; w < state.weekCount; w++) {
+          let best = 0;
+          let fullHours = 0;
+          getWeekDates(w).forEach(dateStr => {
+            for (let h = state.startHour; h < state.endHour; h++) {
+              const c = lookup(makeSlotKey(dateStr, h)).available.length;
+              if (c > best) best = c;
+              if (total > 0 && c === total) fullHours++;
+            }
+          });
+          summaries.push({ best, total, fullHours });
+        }
+        return summaries;
+      }
+
+      function countMemberHours(member, dateSet) {
+        let n = 0;
+        member.slots.forEach(k => {
+          const p = parseSlotKey(k);
+          if (p && dateSet.has(p.date)) n++;
+        });
+        return n;
+      }
+
       // --- Render Functions ---
+      function renderHeader() {
+        const meta = getTeamMeta(state.teamId) || { name: DEFAULT_TEAM_NAME, colorIdx: 0 };
+        const color = TEAM_COLORS[meta.colorIdx % TEAM_COLORS.length];
+        const logo = document.getElementById('teamLogo');
+        logo.style.background = color;
+        logo.textContent = teamInitial(meta.name);
+        document.getElementById('teamNameHeading').textContent = meta.name;
+        const teamCount = teamsIndex.teams.length;
+        document.getElementById('teamSubheading').textContent =
+          `합주 시간표 · ${state.weekCount}주 (${formatMD(state.startDate)}~${formatMD(periodEndStr(state))})${teamCount > 1 ? ` · 팀 ${teamCount}개` : ' · 눌러서 팀 추가'}`;
+        document.title = `${meta.name} · 밴드 합주 시간표`;
+        const themeMeta = document.getElementById('themeColorMeta');
+        if (themeMeta) themeMeta.setAttribute('content', color);
+      }
+
+      function renderWeekBar() {
+        const wrap = document.getElementById('weekTabs');
+        const summaries = computeWeekSummaries();
+        const today = todayStr();
+        wrap.innerHTML = '';
+
+        for (let w = 0; w < state.weekCount; w++) {
+          const dates = getWeekDates(w);
+          const isActive = w === state.viewWeek;
+          const isCurrent = today >= dates[0] && today <= dates[6];
+          const isPast = dates[6] < today;
+          const s = summaries[w];
+
+          let indicator = '';
+          if (s.total > 0 && s.best === s.total) {
+            indicator = `<span class="text-[10px] font-bold ${isActive ? 'text-emerald-200' : 'text-emerald-600'}" title="전원 가능한 시간이 있어요">★</span>`;
+          } else if (s.best > 0) {
+            indicator = `<span class="text-[10px] font-semibold ${isActive ? 'text-indigo-100' : 'text-slate-400'}" title="최대 겹침 인원">${s.best}/${s.total}</span>`;
+          }
+
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = `shrink-0 px-2.5 py-1.5 rounded-lg border text-left transition ${
+            isActive
+              ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+              : 'bg-white border-slate-200 text-slate-700 hover:border-indigo-300 hover:bg-indigo-50/50'
+          } ${isPast && !isActive ? 'opacity-55' : ''}`;
+          btn.innerHTML = `
+            <div class="flex items-center gap-1 text-[11px] font-bold leading-tight whitespace-nowrap">
+              <span>${w + 1}주차</span>
+              ${isCurrent ? `<span class="px-1 rounded text-[9px] font-semibold ${isActive ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'}">이번 주</span>` : ''}
+              ${indicator}
+            </div>
+            <div class="text-[10px] leading-tight whitespace-nowrap ${isActive ? 'text-indigo-100' : 'text-slate-500'}">${formatMD(dates[0])}~${formatMD(dates[6])}</div>
+          `;
+          btn.addEventListener('click', () => goToWeek(w));
+          wrap.appendChild(btn);
+        }
+
+        document.getElementById('btnPrevWeek').disabled = state.viewWeek <= 0;
+        document.getElementById('btnNextWeek').disabled = state.viewWeek >= state.weekCount - 1;
+
+        if (lastScrolledWeek !== state.viewWeek) {
+          lastScrolledWeek = state.viewWeek;
+          const activeBtn = wrap.children[state.viewWeek];
+          if (activeBtn) {
+            const left = activeBtn.offsetLeft;
+            const right = left + activeBtn.offsetWidth;
+            if (left < wrap.scrollLeft) {
+              wrap.scrollLeft = Math.max(0, left - 8);
+            } else if (right > wrap.scrollLeft + wrap.clientWidth) {
+              wrap.scrollLeft = right - wrap.clientWidth + 8;
+            }
+          }
+        }
+      }
+
+      function goToWeek(w) {
+        const next = Math.min(state.weekCount - 1, Math.max(0, w));
+        if (next === state.viewWeek) return;
+        state.viewWeek = next;
+        state.highlightedSlots = [];
+        state.inspectedSlot = null;
+        saveState();
+        renderAll();
+      }
+
       function populateHourSelects() {
         const startSel = document.getElementById('startHourSelect');
         const endSel = document.getElementById('endHourSelect');
@@ -1254,9 +2092,25 @@
         badge.textContent = `${state.members.length}명 (비교 ${includedCount}명)`;
 
         container.innerHTML = '';
+        if (state.members.length === 0) {
+          container.innerHTML = `
+            <div class="w-full p-3 rounded-xl bg-slate-50 border border-dashed border-slate-300 text-xs text-slate-500 leading-relaxed">
+              <strong class="text-slate-700">${escapeHtml(currentTeamName())}</strong> 팀에 아직 멤버가 없습니다. 이름과 파트를 입력하고 <strong>+ 추가</strong>를 눌러주세요.
+              ${isConnectedConfig(syncConfig) ? '팀원들에게는 위의 <strong>이 팀 초대 링크 복사</strong>로 링크를 보내면 각자 입력할 수 있어요.' : ''}
+            </div>
+          `;
+          return;
+        }
+
+        const weekDateSet = new Set(getWeekDates(state.viewWeek));
+        const periodDateSet = new Set();
+        for (let w = 0; w < state.weekCount; w++) getWeekDates(w).forEach(d => periodDateSet.add(d));
+
         state.members.forEach(m => {
           const color = MEMBER_COLORS[m.colorIdx % MEMBER_COLORS.length];
           const isActive = m.id === state.activeMemberId;
+          const weekHours = countMemberHours(m, weekDateSet);
+          const totalHours = countMemberHours(m, periodDateSet);
 
           const card = document.createElement('div');
           card.className = `group inline-flex items-center gap-1.5 pl-2 pr-1.5 py-1.5 rounded-xl border text-xs transition ${
@@ -1281,12 +2135,13 @@
 
           const btnSelect = document.createElement('button');
           btnSelect.type = 'button';
+          btnSelect.title = `${state.viewWeek + 1}주차 ${weekHours}시간 · 전체 기간 ${totalHours}시간`;
           btnSelect.className = 'flex items-center gap-1.5 text-left font-medium text-slate-800 hover:text-indigo-700';
           btnSelect.innerHTML = `
             <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${color.dot}"></span>
             <span>${PART_ICONS[m.part] || '🎵'}</span>
             <span class="font-semibold">${escapeHtml(m.name)}</span>
-            <span class="text-[11px] text-slate-400 font-normal">(${m.slots.length}h)</span>
+            <span class="text-[11px] text-slate-400 font-normal">(${weekHours}h${state.weekCount > 1 ? ` / 전체 ${totalHours}h` : ''})</span>
           `;
           btnSelect.addEventListener('click', () => {
             state.activeMemberId = m.id;
@@ -1313,16 +2168,13 @@
           btnDel.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>`;
           btnDel.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (state.members.length <= 1) {
-              showToast('최소 1명의 멤버는 남아있어야 합니다.');
-              return;
-            }
             const removedId = m.id;
             const removedName = m.name;
             localEditSeq++;
+            pendingSyncMemberIds.delete(removedId);
             state.members = state.members.filter(x => x.id !== removedId);
             if (state.activeMemberId === removedId) {
-              state.activeMemberId = state.members[0].id;
+              state.activeMemberId = state.members[0] ? state.members[0].id : null;
             }
             saveState();
             renderAll();
@@ -1338,11 +2190,23 @@
         });
       }
 
+      function addSlotsForActiveWeek(member, dayFrom, dayTo, hourFrom, hourTo) {
+        const set = new Set(member.slots);
+        const dates = getWeekDates(state.viewWeek);
+        for (let d = dayFrom; d < dayTo; d++) {
+          for (let h = hourFrom; h < hourTo; h++) {
+            if (h >= state.startHour && h < state.endHour) set.add(makeSlotKey(dates[d], h));
+          }
+        }
+        member.slots = Array.from(set);
+      }
+
       function renderModeTabsAndContext() {
         const tabOverlap = document.getElementById('tabOverlap');
         const tabEdit = document.getElementById('tabEdit');
         const contextBar = document.getElementById('modeContextBar');
         const activeMember = getActiveMember();
+        const weekLabel = `${state.viewWeek + 1}주차`;
 
         if (state.mode === 'overlap') {
           tabOverlap.className = 'px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-semibold bg-white text-emerald-700 shadow-sm transition';
@@ -1350,7 +2214,7 @@
           contextBar.innerHTML = `
             <div class="flex items-center gap-2 text-slate-600">
               <span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
-              <span>색이 진할수록 많은 멤버가 겹칩니다. 칸을 클릭해 상세 인원을 확인하세요.</span>
+              <span>${weekLabel} (${weekRangeText(state.viewWeek)}) · 색이 진할수록 많은 멤버가 겹칩니다. 칸을 클릭해 상세 인원을 확인하세요.</span>
             </div>
             <button id="btnQuickSwitchEdit" type="button" class="text-indigo-600 font-semibold hover:underline">
               + 내 시간 입력하러 가기
@@ -1361,62 +2225,119 @@
             saveState();
             renderAll();
           });
-        } else {
-          tabEdit.className = 'px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-semibold bg-white text-indigo-700 shadow-sm transition';
-          tabOverlap.className = 'px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium text-slate-600 hover:text-slate-900 transition';
-          const color = activeMember ? MEMBER_COLORS[activeMember.colorIdx % MEMBER_COLORS.length] : MEMBER_COLORS[0];
-          contextBar.innerHTML = `
-            <div class="flex items-center gap-2 flex-wrap">
-              <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-semibold" style="background:${color.bg}; color:${color.text}; border:1px solid ${color.border}">
-                <span>${activeMember ? (PART_ICONS[activeMember.part] || '🎵') : ''}</span>
-                <span>${activeMember ? escapeHtml(activeMember.name) : ''}</span>
-                <span>입력 중</span>
-              </span>
-              <span class="text-slate-500">클릭하거나 드래그해서 가능한 1시간 칸을 칠하세요.</span>
-            </div>
-            <div class="flex items-center gap-1.5 flex-wrap">
-              <button id="btnFillWeekdayEve" type="button" class="px-2 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition">평일 저녁(18~22시)</button>
-              <button id="btnFillWeekend" type="button" class="px-2 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition">주말 낮(13~18시)</button>
-              <button id="btnClearActiveMember" type="button" class="px-2 py-1 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 font-medium transition">이 멤버 비우기</button>
-            </div>
-          `;
-          document.getElementById('btnFillWeekdayEve').addEventListener('click', () => {
-            if (!activeMember) return;
-            const set = new Set(activeMember.slots);
-            for (let d = 0; d < 5; d++) {
-              for (let h = 18; h < 22; h++) {
-                if (h >= state.startHour && h < state.endHour) set.add(`${d}-${h}`);
-              }
-            }
-            activeMember.slots = Array.from(set);
-            saveState();
-            scheduleMemberSync(activeMember);
-            renderAll();
-            showToast(`${activeMember.name} 평일 저녁 시간을 추가했습니다.`);
-          });
-          document.getElementById('btnFillWeekend').addEventListener('click', () => {
-            if (!activeMember) return;
-            const set = new Set(activeMember.slots);
-            for (let d = 5; d < 7; d++) {
-              for (let h = 13; h < 18; h++) {
-                if (h >= state.startHour && h < state.endHour) set.add(`${d}-${h}`);
-              }
-            }
-            activeMember.slots = Array.from(set);
-            saveState();
-            scheduleMemberSync(activeMember);
-            renderAll();
-            showToast(`${activeMember.name} 주말 낮 시간을 추가했습니다.`);
-          });
-          document.getElementById('btnClearActiveMember').addEventListener('click', () => {
-            if (!activeMember) return;
-            activeMember.slots = [];
-            saveState();
-            scheduleMemberSync(activeMember);
-            renderAll();
-            showToast(`${activeMember.name}의 선택 시간을 모두 비웠습니다.`);
-          });
+          return;
         }
+
+        tabEdit.className = 'px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-semibold bg-white text-indigo-700 shadow-sm transition';
+        tabOverlap.className = 'px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium text-slate-600 hover:text-slate-900 transition';
+
+        if (!activeMember) {
+          contextBar.innerHTML = `<div class="text-slate-500">먼저 위에서 멤버를 추가한 뒤, 본인 이름을 눌러 시간을 입력하세요.</div>`;
+          return;
+        }
+
+        const color = MEMBER_COLORS[activeMember.colorIdx % MEMBER_COLORS.length];
+        contextBar.innerHTML = `
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-semibold" style="background:${color.bg}; color:${color.text}; border:1px solid ${color.border}">
+              <span>${PART_ICONS[activeMember.part] || '🎵'}</span>
+              <span>${escapeHtml(activeMember.name)}</span>
+              <span>입력 중</span>
+            </span>
+            <span class="text-slate-500"><strong class="text-slate-700">${weekLabel}</strong> 칸을 클릭하거나 드래그해서 칠하세요.</span>
+          </div>
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <button id="btnFillWeekdayEve" type="button" class="px-2 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition">평일 저녁(18~22시)</button>
+            <button id="btnFillWeekend" type="button" class="px-2 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition">주말 낮(13~18시)</button>
+            ${state.weekCount > 1 ? `<button id="btnCopyWeekToAll" type="button" class="px-2 py-1 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold transition" title="이 주차에 칠한 요일·시간을 다른 모든 주차에 똑같이 적용">이 주 → 모든 주차 복사</button>` : ''}
+            <button id="btnClearActiveWeek" type="button" class="px-2 py-1 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 font-medium transition">이 주 비우기</button>
+          </div>
+        `;
+        document.getElementById('btnFillWeekdayEve').addEventListener('click', () => {
+          addSlotsForActiveWeek(activeMember, 0, 5, 18, 22);
+          saveState();
+          scheduleMemberSync(activeMember);
+          renderAll();
+          showToast(`${activeMember.name} · ${weekLabel} 평일 저녁 시간을 추가했습니다.`);
+        });
+        document.getElementById('btnFillWeekend').addEventListener('click', () => {
+          addSlotsForActiveWeek(activeMember, 5, 7, 13, 18);
+          saveState();
+          scheduleMemberSync(activeMember);
+          renderAll();
+          showToast(`${activeMember.name} · ${weekLabel} 주말 낮 시간을 추가했습니다.`);
+        });
+        const btnCopy = document.getElementById('btnCopyWeekToAll');
+        if (btnCopy) {
+          btnCopy.addEventListener('click', () => copyWeekPatternToAllWeeks(activeMember));
+        }
+        document.getElementById('btnClearActiveWeek').addEventListener('click', () => {
+          const weekDates = new Set(getWeekDates(state.viewWeek));
+          activeMember.slots = activeMember.slots.filter(k => {
+            const p = parseSlotKey(k);
+            return !p || !weekDates.has(p.date);
+          });
+          saveState();
+          scheduleMemberSync(activeMember);
+          renderAll();
+          showToast(`${activeMember.name}의 ${weekLabel} 시간을 비웠습니다.`);
+        });
+      }
+
+      function copyWeekPatternToAllWeeks(member) {
+        const srcDates = getWeekDates(state.viewWeek);
+        const srcSet = new Set(member.slots);
+        const pattern = [];
+        srcDates.forEach((dateStr, d) => {
+          for (let h = 0; h < 24; h++) {
+            if (srcSet.has(makeSlotKey(dateStr, h))) pattern.push([d, h]);
+          }
+        });
+        if (pattern.length === 0) {
+          showToast(`${state.viewWeek + 1}주차에 입력된 시간이 없습니다. 먼저 칸을 칠해주세요.`);
+          return;
+        }
+        const others = state.weekCount - 1;
+        if (!window.confirm(`${member.name}님의 ${state.viewWeek + 1}주차 시간을 나머지 ${others}개 주차에도 똑같이 적용할까요?\n\n(다른 주차에 이미 입력한 시간은 ${state.viewWeek + 1}주차 기준으로 바뀝니다)`)) return;
+
+        const otherDates = new Set();
+        for (let w = 0; w < state.weekCount; w++) {
+          if (w !== state.viewWeek) getWeekDates(w).forEach(d => otherDates.add(d));
+        }
+        const next = member.slots.filter(k => {
+          const p = parseSlotKey(k);
+          return !p || !otherDates.has(p.date);
+        });
+        for (let w = 0; w < state.weekCount; w++) {
+          if (w === state.viewWeek) continue;
+          const dates = getWeekDates(w);
+          pattern.forEach(([d, h]) => next.push(makeSlotKey(dates[d], h)));
+        }
+        member.slots = Array.from(new Set(next));
+        localEditSeq++;
+        saveState();
+        scheduleMemberSync(member);
+        renderAll();
+        showToast(`${member.name}의 ${state.viewWeek + 1}주차 시간을 전체 ${state.weekCount}개 주차에 적용했습니다.`);
+      }
+
+      function renderDayHeader() {
+        const row = document.getElementById('dayHeaderRow');
+        const today = todayStr();
+        const dates = getWeekDates(state.viewWeek);
+        row.innerHTML = `<div class="text-[11px] font-semibold text-slate-400 py-1.5 flex items-center justify-center">시간</div>` +
+          dates.map((dateStr, d) => {
+            const isToday = dateStr === today;
+            const isPast = dateStr < today;
+            const dayColor = d === 5 ? 'text-indigo-600' : d === 6 ? 'text-rose-600' : 'text-slate-700';
+            const bg = isToday ? 'bg-indigo-50 ring-2 ring-indigo-500' : d === 5 ? 'bg-indigo-50/70' : d === 6 ? 'bg-rose-50/70' : 'bg-slate-50';
+            return `
+              <div class="py-1 rounded-lg leading-tight ${bg} ${isPast ? 'opacity-55' : ''}">
+                <div class="text-xs font-bold ${dayColor}">${DAYS[d]}${isToday ? '<span class="ml-0.5 text-[9px] text-indigo-600">오늘</span>' : ''}</div>
+                <div class="text-[10px] font-medium text-slate-500">${formatMD(dateStr)}</div>
+              </div>
+            `;
+          }).join('');
       }
 
       function renderGrid() {
@@ -1424,6 +2345,10 @@
         const activeMember = getActiveMember();
         const activeColor = activeMember ? MEMBER_COLORS[activeMember.colorIdx % MEMBER_COLORS.length] : MEMBER_COLORS[0];
         const includedTotal = getIncludedMembers().length;
+        const lookup = makeAvailabilityLookup();
+        const activeSet = activeMember ? new Set(activeMember.slots) : new Set();
+        const highlightedSet = new Set(state.highlightedSlots);
+        const dates = getWeekDates(state.viewWeek);
 
         grid.innerHTML = '';
 
@@ -1437,17 +2362,17 @@
           row.appendChild(label);
 
           for (let d = 0; d < 7; d++) {
-            const slotKey = `${d}-${h}`;
+            const slotKey = makeSlotKey(dates[d], h);
             const cell = document.createElement('div');
             cell.dataset.slot = slotKey;
-            const isHighlighted = state.highlightedSlots.includes(slotKey);
+            const isHighlighted = highlightedSet.has(slotKey);
             const isInspected = state.inspectedSlot === slotKey;
 
             cell.className = `grid-cell relative h-9 sm:h-10 rounded-lg border flex items-center justify-center text-xs font-semibold cursor-pointer ${
               isHighlighted ? 'highlighted-block' : ''
             } ${isInspected ? 'inspected-cell' : ''}`;
 
-            const { available, total } = getSlotAvailability(slotKey);
+            const { available, total } = lookup(slotKey);
 
             if (state.mode === 'overlap') {
               const style = getOverlapStyle(available.length, total);
@@ -1463,7 +2388,7 @@
                 cell.innerHTML = `<span class="text-[10px] opacity-40">-</span>`;
               }
             } else {
-              const isSelected = activeMember && activeMember.slots.includes(slotKey);
+              const isSelected = activeSet.has(slotKey);
               const othersCount = available.filter(m => !activeMember || m.id !== activeMember.id).length;
 
               if (isSelected) {
@@ -1484,10 +2409,11 @@
             cell.addEventListener('mousedown', (e) => {
               e.preventDefault();
               state.inspectedSlot = slotKey;
-              if (state.mode === 'edit' && activeMember) {
+              const member = getActiveMember();
+              if (state.mode === 'edit' && member) {
                 isDragging = true;
-                dragPaintValue = !activeMember.slots.includes(slotKey);
-                applySlotChange(activeMember, slotKey, dragPaintValue);
+                dragPaintValue = !member.slots.includes(slotKey);
+                applySlotChange(member, slotKey, dragPaintValue);
                 renderAll();
               } else {
                 renderSlotInspector();
@@ -1496,8 +2422,9 @@
             });
 
             cell.addEventListener('mouseenter', () => {
-              if (isDragging && state.mode === 'edit' && activeMember) {
-                applySlotChange(activeMember, slotKey, dragPaintValue);
+              const member = getActiveMember();
+              if (isDragging && state.mode === 'edit' && member) {
+                applySlotChange(member, slotKey, dragPaintValue);
                 renderAll();
               } else if (state.mode === 'overlap') {
                 state.inspectedSlot = slotKey;
@@ -1521,13 +2448,13 @@
               <span class="inline-flex items-center gap-1"><span class="w-3.5 h-3.5 rounded bg-emerald-300 border border-emerald-400 inline-block"></span>다수</span>
               <span class="inline-flex items-center gap-1"><span class="w-3.5 h-3.5 rounded bg-emerald-500 border border-emerald-600 inline-block"></span>★ 전원 (${includedTotal}명)</span>
             </div>
-            <span class="text-slate-400">1칸 = 1시간</span>
+            <span class="text-slate-400">1칸 = 1시간 · ${state.viewWeek + 1}/${state.weekCount}주차</span>
           `;
         } else {
           legend.innerHTML = `
             <div class="flex items-center gap-2 flex-wrap">
               <span class="font-semibold text-slate-700">입력 안내:</span>
-              <span>빈 칸의 초록 숫자는 다른 멤버 가능 인원입니다.</span>
+              <span>빈 칸의 초록 숫자는 다른 멤버 가능 인원입니다. 위의 주차 탭으로 다른 주도 입력하세요.</span>
             </div>
             <span class="text-slate-400">드래그로 여러 시간 연속 선택 가능</span>
           `;
@@ -1559,23 +2486,22 @@
       function renderSlotInspector() {
         const badge = document.getElementById('inspectorBadge');
         const body = document.getElementById('slotInspectorBody');
+        const parsed = parseSlotKey(state.inspectedSlot);
 
-        if (!state.inspectedSlot) {
+        if (!parsed) {
           badge.textContent = '칸을 클릭하세요';
           badge.className = 'text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600';
           body.innerHTML = `<p class="text-xs text-slate-500">시간표의 원하는 1시간 칸을 클릭하면 가능한 멤버와 불가능한 멤버를 확인할 수 있습니다.</p>`;
           return;
         }
 
-        const [dStr, hStr] = state.inspectedSlot.split('-');
-        const d = parseInt(dStr, 10);
-        const h = parseInt(hStr, 10);
-        const { available, unavailable, total } = getSlotAvailability(state.inspectedSlot);
+        const { available, unavailable, total } = makeAvailabilityLookup()(state.inspectedSlot);
+        const w = weekIdxOfDate(parsed.date);
 
-        badge.textContent = `${DAYS[d]}요일 ${formatHour(h)}~${formatHour(h + 1)}`;
+        badge.textContent = `${w >= 0 ? `${w + 1}주차 · ` : ''}${formatDateLabel(parsed.date)} ${formatHour(parsed.hour)}~${formatHour(parsed.hour + 1)}`;
         badge.className = available.length === total && total > 0
-          ? 'text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800'
-          : 'text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700';
+          ? 'text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 truncate'
+          : 'text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 truncate';
 
         const availHtml = available.length > 0
           ? available.map(m => {
@@ -1586,7 +2512,7 @@
 
         const unavailHtml = unavailable.length > 0
           ? unavailable.map(m => `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-500">${PART_ICONS[m.part] || ''} ${escapeHtml(m.name)}</span>`).join('')
-          : `<span class="text-xs text-emerald-600 font-medium">전원 참여 가능!</span>`;
+          : `<span class="text-xs text-emerald-600 font-medium">${total > 0 ? '전원 참여 가능!' : '비교할 멤버가 없습니다'}</span>`;
 
         body.innerHTML = `
           <div class="space-y-3">
@@ -1602,69 +2528,138 @@
         `;
       }
 
+      function createBlockButton(b) {
+        const isAll = b.count === b.total;
+        const duration = b.endHour - b.startHour;
+        const isActiveHighlight = b.slots.length > 0 && state.highlightedSlots.length === b.slots.length && b.slots.every(s => state.highlightedSlots.includes(s));
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `w-full text-left p-3 rounded-xl border transition ${
+          isActiveHighlight
+            ? 'border-indigo-500 bg-indigo-50/70 ring-1 ring-indigo-500'
+            : isAll
+              ? 'border-emerald-200 bg-emerald-50/50 hover:bg-emerald-50'
+              : 'border-slate-200 bg-white hover:bg-slate-50'
+        }`;
+
+        const memberNames = b.members.map(m => m.name).join(', ');
+        btn.innerHTML = `
+          <div class="flex items-center justify-between gap-2">
+            <div class="font-bold text-sm text-slate-900">
+              ${formatDateLabel(b.dateStr)} ${formatHour(b.startHour)} ~ ${formatHour(b.endHour)}
+            </div>
+            <span class="shrink-0 px-2 py-0.5 rounded-full text-[11px] font-bold ${
+              isAll ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'
+            }">
+              ${isAll ? '★ 전원 ' + b.count + '명' : b.count + '/' + b.total + '명'}
+            </span>
+          </div>
+          <div class="mt-1 flex items-center justify-between text-xs text-slate-600">
+            <span class="truncate pr-2">${escapeHtml(memberNames)}</span>
+            <span class="shrink-0 font-semibold text-indigo-600">${duration}시간 연속</span>
+          </div>
+        `;
+
+        btn.addEventListener('click', () => {
+          state.mode = 'overlap';
+          state.viewWeek = b.weekIdx;
+          state.highlightedSlots = isActiveHighlight ? [] : b.slots.slice();
+          state.inspectedSlot = b.slots[0];
+          saveState();
+          renderAll();
+        });
+        return btn;
+      }
+
       function renderRecommendations() {
         const list = document.getElementById('recommendationList');
-        const blocks = computeRecommendedBlocks();
+        const scopeSwitch = document.getElementById('recScopeSwitch');
+        const btnAll = document.getElementById('recScopeAll');
+        const btnWeek = document.getElementById('recScopeWeek');
+        const multiWeek = state.weekCount > 1;
+        const scope = multiWeek ? state.recScope : 'week';
 
-        if (blocks.length === 0) {
-          list.innerHTML = `
-            <div class="p-4 rounded-xl bg-slate-50 border border-dashed border-slate-200 text-center text-xs text-slate-500">
-              조건에 맞는 겹치는 시간대가 아직 없습니다.<br/>멤버별 가능 시간을 입력하거나 최소 인원 필터를 낮춰보세요.
-            </div>
-          `;
+        scopeSwitch.classList.toggle('hidden', !multiWeek);
+        const onCls = 'px-2.5 py-1 rounded-md font-semibold bg-white text-emerald-700 shadow-sm transition';
+        const offCls = 'px-2.5 py-1 rounded-md font-medium text-slate-500 hover:text-slate-800 transition';
+        btnAll.className = scope === 'all' ? onCls : offCls;
+        btnWeek.className = scope === 'week' ? onCls : offCls;
+        btnWeek.textContent = `${state.viewWeek + 1}주차만`;
+
+        const byWeek = computeRecommendationsByWeek();
+        list.innerHTML = '';
+
+        const emptyHtml = `
+          <div class="p-4 rounded-xl bg-slate-50 border border-dashed border-slate-200 text-center text-xs text-slate-500">
+            조건에 맞는 겹치는 시간대가 아직 없습니다.<br/>멤버별 가능 시간을 입력하거나 최소 인원 필터를 낮춰보세요.
+          </div>
+        `;
+
+        if (scope === 'week') {
+          const blocks = byWeek[state.viewWeek] ? byWeek[state.viewWeek].blocks : [];
+          if (blocks.length === 0) {
+            list.innerHTML = emptyHtml;
+            return;
+          }
+          blocks.forEach(b => list.appendChild(createBlockButton(b)));
           return;
         }
 
-        list.innerHTML = '';
-        blocks.forEach((b) => {
-          const isAll = b.count === b.total;
-          const duration = b.endHour - b.startHour;
-          const isActiveHighlight = b.slots.length > 0 && state.highlightedSlots.length === b.slots.length && b.slots.every(s => state.highlightedSlots.includes(s));
+        if (byWeek.every(g => g.blocks.length === 0)) {
+          list.innerHTML = emptyHtml;
+          return;
+        }
 
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = `w-full text-left p-3 rounded-xl border transition ${
-            isActiveHighlight
-              ? 'border-indigo-500 bg-indigo-50/70 ring-1 ring-indigo-500'
-              : isAll
-                ? 'border-emerald-200 bg-emerald-50/50 hover:bg-emerald-50'
-                : 'border-slate-200 bg-white hover:bg-slate-50'
-          }`;
+        const PER_WEEK = 3;
+        byWeek.forEach(group => {
+          const w = group.weekIdx;
+          const section = document.createElement('div');
+          section.className = `space-y-1.5 ${isPastWeek(w) ? 'opacity-60' : ''}`;
 
-          const memberNames = b.members.map(m => m.name).join(', ');
-          btn.innerHTML = `
-            <div class="flex items-center justify-between gap-2">
-              <div class="font-bold text-sm text-slate-900">
-                ${DAYS[b.dayIdx]}요일 ${formatHour(b.startHour)} ~ ${formatHour(b.endHour)}
-              </div>
-              <span class="shrink-0 px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                isAll ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'
-              }">
-                ${isAll ? '★ 전원 ' + b.count + '명' : b.count + '/' + b.total + '명'}
-              </span>
-            </div>
-            <div class="mt-1 flex items-center justify-between text-xs text-slate-600">
-              <span class="truncate pr-2">${escapeHtml(memberNames)}</span>
-              <span class="shrink-0 font-semibold text-indigo-600">${duration}시간 연속</span>
-            </div>
+          const best = group.blocks[0];
+          const head = document.createElement('button');
+          head.type = 'button';
+          head.className = `w-full flex items-center justify-between gap-2 px-1 pt-1 text-left group`;
+          head.innerHTML = `
+            <span class="text-xs font-bold ${w === state.viewWeek ? 'text-indigo-700' : 'text-slate-700'}">
+              ${w + 1}주차 <span class="font-medium text-slate-400">${weekRangeText(w)}</span>
+            </span>
+            <span class="text-[11px] font-semibold text-slate-400 group-hover:text-indigo-600">
+              ${best ? (best.count === best.total ? '★ 전원 가능' : `최대 ${best.count}/${best.total}명`) : '겹치는 시간 없음'}
+              ${group.blocks.length > PER_WEEK ? ` · +${group.blocks.length - PER_WEEK}개` : ''} →
+            </span>
           `;
-
-          btn.addEventListener('click', () => {
-            state.mode = 'overlap';
-            state.highlightedSlots = isActiveHighlight ? [] : b.slots.slice();
-            state.inspectedSlot = b.slots[0];
+          head.title = '이 주차의 추천 전체 보기';
+          head.addEventListener('click', () => {
+            state.viewWeek = w;
+            state.recScope = 'week';
+            state.highlightedSlots = [];
+            saveState();
             renderAll();
           });
+          section.appendChild(head);
 
-          list.appendChild(btn);
+          if (group.blocks.length === 0) {
+            const none = document.createElement('div');
+            none.className = 'px-3 py-2 rounded-xl border border-dashed border-slate-200 text-[11px] text-slate-400';
+            none.textContent = '조건에 맞는 시간이 없습니다.';
+            section.appendChild(none);
+          } else {
+            group.blocks.slice(0, PER_WEEK).forEach(b => section.appendChild(createBlockButton(b)));
+          }
+          list.appendChild(section);
         });
       }
 
       function renderAll() {
+        renderHeader();
+        renderWeekBar();
         populateHourSelects();
         populateMinMembersSelect();
         renderMembers();
         renderModeTabsAndContext();
+        renderDayHeader();
         renderGrid();
         renderSlotInspector();
         renderRecommendations();
@@ -1681,21 +2676,29 @@
       }
 
       // --- Modals ---
+      function showModal(id) {
+        const modal = document.getElementById(id);
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+      }
+
+      function hideModal(id) {
+        const modal = document.getElementById(id);
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+      }
+
       function openSyncModal(defaultTab) {
         document.getElementById('githubRepoInput').value = syncConfig.repo || inferRepoFromLocation() || '';
         document.getElementById('githubTokenInput').value = syncConfig.token || '';
         document.getElementById('autoSyncCheckbox').checked = syncConfig.autoSync;
         switchSyncTab(defaultTab || 'config');
-        const modal = document.getElementById('syncModal');
-        modal.classList.remove('hidden');
-        modal.classList.add('flex');
+        showModal('syncModal');
         updateSyncUI();
       }
 
       function closeSyncModal() {
-        const modal = document.getElementById('syncModal');
-        modal.classList.add('hidden');
-        modal.classList.remove('flex');
+        hideModal('syncModal');
       }
 
       function switchSyncTab(tab) {
@@ -1723,21 +2726,24 @@
         renameTargetId = memberId;
         document.getElementById('renameInput').value = m.name;
         document.getElementById('renamePartSelect').value = m.part;
-        const modal = document.getElementById('renameModal');
-        modal.classList.remove('hidden');
-        modal.classList.add('flex');
+        showModal('renameModal');
         document.getElementById('renameInput').focus();
       }
 
       function closeRenameModal() {
-        const modal = document.getElementById('renameModal');
-        modal.classList.add('hidden');
-        modal.classList.remove('flex');
+        hideModal('renameModal');
         renameTargetId = null;
       }
 
       function openShareModal() {
+        const meta = getTeamMeta(state.teamId);
         const payload = {
+          version: 2,
+          team: {
+            name: meta ? meta.name : DEFAULT_TEAM_NAME,
+            startDate: state.startDate,
+            weekCount: state.weekCount
+          },
           startHour: state.startHour,
           endHour: state.endHour,
           members: state.members.map(m => ({
@@ -1747,27 +2753,246 @@
           }))
         };
         document.getElementById('shareCodeTextarea').value = JSON.stringify(payload);
-        const modal = document.getElementById('shareModal');
-        modal.classList.remove('hidden');
-        modal.classList.add('flex');
+        showModal('shareModal');
       }
 
       function closeShareModal() {
-        const modal = document.getElementById('shareModal');
-        modal.classList.add('hidden');
-        modal.classList.remove('flex');
+        hideModal('shareModal');
       }
 
       function openResetModal() {
-        const modal = document.getElementById('resetModal');
-        modal.classList.remove('hidden');
-        modal.classList.add('flex');
+        document.getElementById('resetTeamName').textContent = `'${currentTeamName()}' 팀`;
+        document.getElementById('btnClearWeekSlots').textContent = `${state.viewWeek + 1}주차(${weekRangeText(state.viewWeek)}) 시간만 비우기`;
+        showModal('resetModal');
       }
 
       function closeResetModal() {
-        const modal = document.getElementById('resetModal');
-        modal.classList.add('hidden');
-        modal.classList.remove('flex');
+        hideModal('resetModal');
+      }
+
+      // Team modal
+      function openTeamModal() {
+        renderTeamList();
+        document.getElementById('remoteTeamsSection').classList.toggle('hidden', !isConnectedConfig(syncConfig));
+        document.getElementById('remoteTeamList').innerHTML = '';
+        showModal('teamModal');
+      }
+
+      function closeTeamModal() {
+        hideModal('teamModal');
+      }
+
+      function renderTeamList() {
+        const list = document.getElementById('teamList');
+        list.innerHTML = '';
+        teamsIndex.teams.forEach(t => {
+          const isActive = t.id === state.teamId;
+          const s = isActive ? state : loadTeamState(t.id);
+          const memberCount = s ? s.members.length : 0;
+          const periodText = s ? `${s.weekCount}주 · ${formatMD(s.startDate)}~${formatMD(periodEndStr(s))}` : '';
+          const color = TEAM_COLORS[t.colorIdx % TEAM_COLORS.length];
+
+          const row = document.createElement('div');
+          row.className = `flex items-center gap-1.5 p-2 rounded-xl border transition ${
+            isActive ? 'border-indigo-400 ring-1 ring-indigo-400 bg-indigo-50/60' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+          }`;
+
+          const btnSelect = document.createElement('button');
+          btnSelect.type = 'button';
+          btnSelect.className = 'flex-1 min-w-0 flex items-center gap-3 text-left p-1';
+          btnSelect.innerHTML = `
+            <span class="w-10 h-10 rounded-xl text-white flex items-center justify-center shrink-0 text-base font-bold shadow-sm" style="background:${color}">${escapeHtml(teamInitial(t.name))}</span>
+            <span class="min-w-0 flex-1">
+              <span class="flex items-center gap-1.5">
+                <span class="text-sm font-bold text-slate-900 truncate">${escapeHtml(t.name)}</span>
+                ${isActive ? '<span class="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-600 text-white">현재 팀</span>' : ''}
+              </span>
+              <span class="block text-[11px] text-slate-500 truncate">멤버 ${memberCount}명 · ${periodText}</span>
+            </span>
+          `;
+          btnSelect.addEventListener('click', () => switchTeam(t.id));
+
+          const btnEdit = document.createElement('button');
+          btnEdit.type = 'button';
+          btnEdit.title = '팀 이름/색상 수정';
+          btnEdit.className = 'p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition shrink-0';
+          btnEdit.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>`;
+          btnEdit.addEventListener('click', () => openTeamEditModal(t.id));
+
+          const btnDel = document.createElement('button');
+          btnDel.type = 'button';
+          btnDel.title = '팀 삭제';
+          btnDel.className = 'p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition shrink-0';
+          btnDel.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>`;
+          btnDel.addEventListener('click', () => deleteTeam(t.id));
+
+          row.appendChild(btnSelect);
+          row.appendChild(btnEdit);
+          row.appendChild(btnDel);
+          list.appendChild(row);
+        });
+      }
+
+      function openTeamEditModal(teamId) {
+        const meta = getTeamMeta(teamId);
+        if (!meta) return;
+        editTeamTargetId = teamId;
+        editTeamColorIdx = meta.colorIdx;
+        document.getElementById('teamEditNameInput').value = meta.name;
+        renderTeamColorSwatches();
+        showModal('teamEditModal');
+        document.getElementById('teamEditNameInput').focus();
+      }
+
+      function closeTeamEditModal() {
+        hideModal('teamEditModal');
+        editTeamTargetId = null;
+      }
+
+      function renderTeamColorSwatches() {
+        const wrap = document.getElementById('teamColorSwatches');
+        wrap.innerHTML = '';
+        TEAM_COLORS.forEach((c, idx) => {
+          const sw = document.createElement('button');
+          sw.type = 'button';
+          sw.title = `색상 ${idx + 1}`;
+          sw.className = `w-8 h-8 rounded-lg transition ${idx === editTeamColorIdx ? 'ring-2 ring-offset-2 ring-slate-900' : 'hover:scale-105'}`;
+          sw.style.background = c;
+          sw.addEventListener('click', () => {
+            editTeamColorIdx = idx;
+            renderTeamColorSwatches();
+          });
+          wrap.appendChild(sw);
+        });
+      }
+
+      async function discoverRemoteTeams() {
+        const listEl = document.getElementById('remoteTeamList');
+        const btn = document.getElementById('btnDiscoverTeams');
+        if (!isConnectedConfig(syncConfig)) return;
+        btn.disabled = true;
+        listEl.innerHTML = '<div class="text-[11px] text-emerald-800">저장소를 확인하는 중...</div>';
+        try {
+          const found = [];
+          const probe = async (id, path) => {
+            try {
+              const r = await readTeamDoc(path, defaultStartDateStr());
+              if (r.exists) {
+                found.push({
+                  id,
+                  name: (r.doc.team && r.doc.team.name) || (id === DEFAULT_TEAM_ID ? DEFAULT_TEAM_NAME : '이름 없는 팀'),
+                  colorIdx: r.doc.team ? r.doc.team.colorIdx : undefined,
+                  memberCount: Object.keys(r.doc.members).length
+                });
+              }
+            } catch (e) {}
+          };
+          const tasks = [probe(DEFAULT_TEAM_ID, LEGACY_DATA_FILE_PATH)];
+          const dirRes = await fetch(`${contentsUrl(TEAMS_DIR)}?ref=${DATA_BRANCH}&t=${Date.now()}`, {
+            method: 'GET',
+            headers: ghHeaders(true),
+            cache: 'no-store'
+          });
+          if (dirRes.status === 401 || dirRes.status === 403) throw new Error('토큰 권한 오류');
+          if (dirRes.ok) {
+            const arr = await dirRes.json();
+            if (Array.isArray(arr)) {
+              arr.forEach(f => {
+                if (f && f.type === 'file' && /\.json$/.test(f.name)) {
+                  const id = f.name.replace(/\.json$/, '');
+                  if (isValidTeamId(id) && id !== DEFAULT_TEAM_ID) tasks.push(probe(id, `${TEAMS_DIR}/${f.name}`));
+                }
+              });
+            }
+          }
+          await Promise.all(tasks);
+
+          if (found.length === 0) {
+            listEl.innerHTML = '<div class="text-[11px] text-emerald-800">저장소에 저장된 팀이 아직 없습니다.</div>';
+            return;
+          }
+          found.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+          listEl.innerHTML = '';
+          found.forEach(f => {
+            const already = !!getTeamMeta(f.id);
+            const row = document.createElement('div');
+            row.className = 'flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-white border border-emerald-100';
+            row.innerHTML = `
+              <span class="min-w-0">
+                <span class="block font-semibold text-slate-800 truncate">${escapeHtml(f.name)}</span>
+                <span class="block text-[11px] text-slate-500">멤버 ${f.memberCount}명</span>
+              </span>
+            `;
+            const action = document.createElement('button');
+            action.type = 'button';
+            if (already) {
+              action.className = 'shrink-0 px-2.5 py-1 rounded-md text-[11px] font-semibold text-slate-400 bg-slate-100 cursor-default';
+              action.textContent = '이미 목록에 있음';
+              action.disabled = true;
+            } else {
+              action.className = 'shrink-0 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition';
+              action.textContent = '추가하고 열기';
+              action.addEventListener('click', () => {
+                ensureTeamRegistered(f.id, f.name, typeof f.colorIdx === 'number' ? f.colorIdx : null);
+                switchTeam(f.id);
+              });
+            }
+            row.appendChild(action);
+            listEl.appendChild(row);
+          });
+        } catch (e) {
+          listEl.innerHTML = `<div class="text-[11px] text-rose-600">불러오기 실패: ${escapeHtml(e.message || '오류')}</div>`;
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      // Period modal
+      function populateWeekCountSelect(selected) {
+        const sel = document.getElementById('periodWeekCountSelect');
+        sel.innerHTML = '';
+        for (let i = 1; i <= MAX_WEEK_COUNT; i++) {
+          const opt = document.createElement('option');
+          opt.value = i;
+          opt.textContent = `${i}주`;
+          if (i === selected) opt.selected = true;
+          sel.appendChild(opt);
+        }
+      }
+
+      function readPeriodForm() {
+        const raw = document.getElementById('periodStartInput').value;
+        const startDate = isValidDateStr(raw) ? normalizeStartDate(raw) : state.startDate;
+        const weekCount = clampWeekCount(document.getElementById('periodWeekCountSelect').value);
+        return { startDate, weekCount };
+      }
+
+      function updatePeriodPreview() {
+        const { startDate, weekCount } = readPeriodForm();
+        const raw = document.getElementById('periodStartInput').value;
+        document.getElementById('periodStartHint').textContent = isValidDateStr(raw) && raw !== startDate
+          ? `→ 그 주 월요일인 ${formatDateLabel(startDate)}부터 시작해요.`
+          : `${formatDateLabel(startDate)}부터 시작해요.`;
+        document.getElementById('periodRangePreview').textContent =
+          `${formatDateLabel(startDate)} ~ ${formatDateLabel(addDaysStr(startDate, weekCount * 7 - 1))} · 총 ${weekCount}주`;
+        const shiftLabel = document.getElementById('periodShiftLabel');
+        const shiftBox = document.getElementById('periodShiftSlots');
+        const delta = daysBetween(state.startDate, startDate);
+        shiftBox.disabled = delta === 0;
+        shiftLabel.classList.toggle('opacity-50', delta === 0);
+        if (delta === 0) shiftBox.checked = false;
+      }
+
+      function openPeriodModal() {
+        document.getElementById('periodStartInput').value = state.startDate;
+        populateWeekCountSelect(state.weekCount);
+        document.getElementById('periodShiftSlots').checked = false;
+        updatePeriodPreview();
+        showModal('periodModal');
+      }
+
+      function closePeriodModal() {
+        hideModal('periodModal');
       }
 
       // --- Global Event Listeners ---
@@ -1782,6 +3007,37 @@
       document.addEventListener('visibilitychange', () => {
         if (!document.hidden && isConnectedConfig(syncConfig) && !isDragging && !pushDebounceTimer) {
           fetchFromDb(true);
+        }
+      });
+
+      window.addEventListener('hashchange', () => {
+        const hash = window.location.hash || '';
+        if (/[#&]gh=/.test(hash)) {
+          // 같은 탭에 초대 링크를 붙여넣은 경우: 새로 불러와서 처리
+          window.location.reload();
+          return;
+        }
+        const m = hash.match(/[#&]team=([^&]+)/);
+        if (m) {
+          const id = decodeURIComponent(m[1]);
+          if (id !== state.teamId && getTeamMeta(id)) switchTeam(id);
+        }
+      });
+
+      window.addEventListener('storage', (e) => {
+        if (e.key === TEAMS_INDEX_KEY) {
+          const fresh = loadTeamsIndexRaw();
+          if (fresh && fresh.teams.length > 0) {
+            const activeId = teamsIndex.activeTeamId;
+            teamsIndex = fresh;
+            teamsIndex.activeTeamId = activeId;
+            if (!getTeamMeta(state.teamId)) {
+              const meta = { id: state.teamId, name: currentTeamName(), colorIdx: 0, createdAt: new Date().toISOString() };
+              teamsIndex.teams.push(meta);
+            }
+            renderHeader();
+            if (!document.getElementById('teamModal').classList.contains('hidden')) renderTeamList();
+          }
         }
       });
 
@@ -1828,6 +3084,105 @@
         }
       });
 
+      // Team switcher
+      document.getElementById('btnOpenTeamModal').addEventListener('click', openTeamModal);
+      document.getElementById('btnCloseTeamModal').addEventListener('click', closeTeamModal);
+      document.getElementById('teamModal').addEventListener('click', (e) => {
+        if (e.target.id === 'teamModal') closeTeamModal();
+      });
+      document.getElementById('createTeamForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const input = document.getElementById('newTeamName');
+        const name = input.value.trim();
+        if (!name) {
+          showToast('새 팀 이름을 입력해주세요.');
+          input.focus();
+          return;
+        }
+        input.value = '';
+        createTeam(name);
+      });
+      document.getElementById('btnDiscoverTeams').addEventListener('click', discoverRemoteTeams);
+
+      document.getElementById('btnCancelTeamEdit').addEventListener('click', closeTeamEditModal);
+      document.getElementById('teamEditModal').addEventListener('click', (e) => {
+        if (e.target.id === 'teamEditModal') closeTeamEditModal();
+      });
+      document.getElementById('teamEditForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const teamId = editTeamTargetId;
+        const name = document.getElementById('teamEditNameInput').value.trim().slice(0, 20);
+        if (!teamId || !name) return;
+        const colorIdx = editTeamColorIdx;
+        mutateTeamsIndex(idx => {
+          const t = idx.teams.find(x => x.id === teamId);
+          if (t) {
+            t.name = name;
+            t.colorIdx = colorIdx;
+          }
+        });
+        if (isConnectedConfig(syncConfig)) {
+          const teamState = teamId === state.teamId ? state : loadTeamState(teamId);
+          if (teamState) {
+            if (teamId === state.teamId) localEditSeq++;
+            pushTeamInfo(teamState, null, `[${name}] Update team info`, null);
+          }
+        }
+        closeTeamEditModal();
+        renderTeamList();
+        renderAll();
+        showToast('팀 정보를 수정했습니다.');
+      });
+
+      // Week navigation & period
+      document.getElementById('btnPrevWeek').addEventListener('click', () => goToWeek(state.viewWeek - 1));
+      document.getElementById('btnNextWeek').addEventListener('click', () => goToWeek(state.viewWeek + 1));
+      document.getElementById('btnOpenPeriodModal').addEventListener('click', openPeriodModal);
+      document.getElementById('btnCancelPeriod').addEventListener('click', closePeriodModal);
+      document.getElementById('periodModal').addEventListener('click', (e) => {
+        if (e.target.id === 'periodModal') closePeriodModal();
+      });
+      document.getElementById('periodStartInput').addEventListener('change', updatePeriodPreview);
+      document.getElementById('periodStartInput').addEventListener('input', updatePeriodPreview);
+      document.getElementById('periodWeekCountSelect').addEventListener('change', updatePeriodPreview);
+      document.getElementById('btnPeriodThisWeek').addEventListener('click', () => {
+        document.getElementById('periodStartInput').value = currentMondayStr();
+        updatePeriodPreview();
+      });
+      document.getElementById('btnPeriodNextWeek').addEventListener('click', () => {
+        document.getElementById('periodStartInput').value = addDaysStr(currentMondayStr(), 7);
+        updatePeriodPreview();
+      });
+      document.getElementById('periodForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const { startDate, weekCount } = readPeriodForm();
+        const delta = daysBetween(state.startDate, startDate);
+        const shift = delta !== 0 && document.getElementById('periodShiftSlots').checked;
+
+        localEditSeq++;
+        if (shift) {
+          state.members.forEach(m => {
+            m.slots = Array.from(new Set(m.slots.map(k => shiftSlotKey(k, delta))));
+          });
+          if (state.inspectedSlot) state.inspectedSlot = shiftSlotKey(state.inspectedSlot, delta);
+        }
+        state.highlightedSlots = [];
+        state.startDate = startDate;
+        state.weekCount = weekCount;
+        state.viewWeek = Math.min(weekCount - 1, Math.max(0, state.viewWeek));
+        saveState();
+        renderAll();
+        closePeriodModal();
+        showToast(`합주 기간: ${formatMD(startDate)} ~ ${formatMD(periodEndStr(state))} (${weekCount}주)${shift ? ' · 입력된 시간도 함께 옮겼어요' : ''}`);
+
+        pushTeamInfo(state, shift ? (doc) => {
+          Object.keys(doc.members).forEach(id => {
+            const m = doc.members[id];
+            m.slots = Array.from(new Set(m.slots.map(k => shiftSlotKey(k, delta))));
+          });
+        } : null, `[${currentTeamName()}] Update rehearsal period`, null);
+      });
+
       // Sync Modal & Header Sync Controls
       document.getElementById('btnOpenSyncModal').addEventListener('click', () => openSyncModal('config'));
       document.getElementById('btnBannerSetup').addEventListener('click', () => openSyncModal(isConnectedConfig(syncConfig) ? 'config' : 'guide'));
@@ -1844,7 +3199,9 @@
           showToast('먼저 GitHub 동기화를 연결해주세요.');
           return;
         }
-        copyText(inviteUrl, '친구 초대 링크를 복사했습니다! 단톡방에 붙여넣으세요.');
+        copyText(inviteUrl, `'${currentTeamName()}' 팀 초대 링크를 복사했습니다! 이 팀 단톡방에 붙여넣으세요.`);
+        // 친구가 들어왔을 때 비어있지 않도록, 저장소에 이 팀 파일이 없으면 지금 만들어 둡니다.
+        ensureRemoteTeamDoc(state);
       }
 
       document.getElementById('btnCopyInviteLinkBanner').addEventListener('click', handleCopyInviteLink);
@@ -1893,7 +3250,7 @@
         syncConfig.autoSync = document.getElementById('autoSyncCheckbox').checked;
         saveSyncConfig();
         restartAutoSync();
-        const ok = await replaceAllInDb('현재 시간표를 GitHub에 업로드했습니다!');
+        const ok = await replaceAllInDb(`'${currentTeamName()}' 팀 시간표를 GitHub에 업로드했습니다!`);
         if (ok) closeSyncModal();
       });
 
@@ -1921,6 +3278,18 @@
         state.highlightedSlots = [];
         saveState();
         renderAll();
+      });
+
+      // Recommendation scope
+      document.getElementById('recScopeAll').addEventListener('click', () => {
+        state.recScope = 'all';
+        saveState();
+        renderRecommendations();
+      });
+      document.getElementById('recScopeWeek').addEventListener('click', () => {
+        state.recScope = 'week';
+        saveState();
+        renderRecommendations();
       });
 
       // Add Member
@@ -1979,21 +3348,37 @@
         renderRecommendations();
       });
 
-      // Copy Summary for KakaoTalk / Chat
+      // Copy Summary for KakaoTalk / Chat (주차별 정리)
       document.getElementById('btnCopySummary').addEventListener('click', () => {
-        const blocks = computeRecommendedBlocks();
-        if (blocks.length === 0) {
+        const included = getIncludedMembers();
+        if (included.length === 0) {
+          showToast('비교할 멤버가 없습니다.');
+          return;
+        }
+        const byWeek = computeRecommendationsByWeek();
+        if (byWeek.every(g => g.blocks.length === 0)) {
           showToast('복사할 겹치는 시간대가 없습니다.');
           return;
         }
-        const includedCount = getIncludedMembers().length;
-        const lines = [`[밴드 합주 가능 시간 정리] (비교 인원 ${includedCount}명)`];
-        blocks.slice(0, 8).forEach((b, idx) => {
-          const tag = b.count === b.total ? `★전원 ${b.count}명` : `${b.count}/${b.total}명`;
-          const names = b.members.map(m => m.name).join(', ');
-          lines.push(`${idx + 1}. ${DAYS[b.dayIdx]}요일 ${formatHour(b.startHour)}~${formatHour(b.endHour)} (${b.endHour - b.startHour}시간) [${tag}: ${names}]`);
+        // 이미 지난 주차는 빼고 정리 (전부 지났으면 전체 포함)
+        let groups = byWeek.filter(g => !isPastWeek(g.weekIdx));
+        if (groups.length === 0) groups = byWeek;
+
+        const lines = [`[${currentTeamName()} 합주 가능 시간] 비교 인원 ${included.length}명 · ${state.weekCount}주 (${formatMD(state.startDate)}~${formatMD(periodEndStr(state))})`];
+        groups.forEach(g => {
+          lines.push('');
+          lines.push(`■ ${g.weekIdx + 1}주차 (${weekRangeText(g.weekIdx)})`);
+          if (g.blocks.length === 0) {
+            lines.push('  - 조건에 맞는 시간 없음');
+            return;
+          }
+          g.blocks.slice(0, 3).forEach((b, idx) => {
+            const missing = included.filter(m => !b.members.some(x => x.id === m.id)).map(m => m.name);
+            const tag = b.count === b.total ? `★전원 ${b.count}명` : `${b.count}/${b.total}명 · 불참: ${missing.join(', ')}`;
+            lines.push(`  ${idx + 1}. ${formatDateLabel(b.dateStr)} ${formatHour(b.startHour)}~${formatHour(b.endHour)} (${b.endHour - b.startHour}시간) [${tag}]`);
+          });
         });
-        copyText(lines.join('\n'), '합주 추천 시간 요약을 복사했습니다!');
+        copyText(lines.join('\n'), '주차별 합주 추천 시간 요약을 복사했습니다!');
       });
 
       // Share Modal buttons
@@ -2007,13 +3392,26 @@
         copyText(code, '공유 코드를 복사했습니다!');
       });
 
+      function parseShareCode() {
+        const parsed = JSON.parse(document.getElementById('shareCodeTextarea').value.trim());
+        if (!parsed || !Array.isArray(parsed.members) || parsed.members.length === 0) {
+          throw new Error('invalid');
+        }
+        const team = parsed.team && typeof parsed.team === 'object' && isValidDateStr(parsed.team.startDate)
+          ? { startDate: normalizeStartDate(parsed.team.startDate), weekCount: clampWeekCount(parsed.team.weekCount) }
+          : null;
+        return { parsed, team };
+      }
+
       document.getElementById('btnImportShareCode').addEventListener('click', () => {
         try {
-          const parsed = JSON.parse(document.getElementById('shareCodeTextarea').value.trim());
-          if (!parsed || !Array.isArray(parsed.members) || parsed.members.length === 0) {
-            throw new Error('invalid');
-          }
+          const { parsed, team } = parseShareCode();
           localEditSeq++;
+          if (team) {
+            state.startDate = team.startDate;
+            state.weekCount = team.weekCount;
+            state.viewWeek = Math.min(state.weekCount - 1, state.viewWeek);
+          }
           state.startHour = typeof parsed.startHour === 'number' ? parsed.startHour : state.startHour;
           state.endHour = typeof parsed.endHour === 'number' ? parsed.endHour : state.endHour;
           state.members = parsed.members.map((m, idx) => ({
@@ -2022,7 +3420,7 @@
             part: PART_ICONS[m.part] ? m.part : '세션',
             colorIdx: idx % MEMBER_COLORS.length,
             included: true,
-            slots: Array.isArray(m.slots) ? Array.from(new Set(m.slots)) : []
+            slots: normalizeSlots(m.slots, state.startDate)
           }));
           state.activeMemberId = state.members[0].id;
           state.mode = 'overlap';
@@ -2039,10 +3437,8 @@
 
       document.getElementById('btnMergeShareCode').addEventListener('click', () => {
         try {
-          const parsed = JSON.parse(document.getElementById('shareCodeTextarea').value.trim());
-          if (!parsed || !Array.isArray(parsed.members) || parsed.members.length === 0) {
-            throw new Error('invalid');
-          }
+          const { parsed, team } = parseShareCode();
+          const slotBase = team ? team.startDate : state.startDate;
           localEditSeq++;
           let addedCount = 0;
           let updatedCount = 0;
@@ -2050,7 +3446,7 @@
             const name = String(incoming.name || '').trim();
             if (!name) return;
             const existing = state.members.find(m => m.name === name);
-            const slots = Array.isArray(incoming.slots) ? Array.from(new Set(incoming.slots)) : [];
+            const slots = normalizeSlots(incoming.slots, slotBase);
             if (existing) {
               existing.slots = Array.from(new Set([...existing.slots, ...slots]));
               updatedCount++;
@@ -2066,6 +3462,9 @@
               addedCount++;
             }
           });
+          if (!state.members.some(m => m.id === state.activeMemberId)) {
+            state.activeMemberId = state.members[0] ? state.members[0].id : null;
+          }
           state.mode = 'overlap';
           saveState();
           renderAll();
@@ -2083,6 +3482,28 @@
       document.getElementById('resetModal').addEventListener('click', (e) => {
         if (e.target.id === 'resetModal') closeResetModal();
       });
+      document.getElementById('btnClearWeekSlots').addEventListener('click', () => {
+        const weekDates = getWeekDates(state.viewWeek);
+        const dateSet = new Set(weekDates);
+        const inWeek = (k) => {
+          const p = parseSlotKey(k);
+          return !!p && dateSet.has(p.date);
+        };
+        localEditSeq++;
+        state.members.forEach(m => { m.slots = m.slots.filter(k => !inWeek(k)); });
+        state.highlightedSlots = [];
+        saveState();
+        renderAll();
+        closeResetModal();
+        showToast(`${state.viewWeek + 1}주차 시간을 모두 비웠습니다.`);
+        const ctx = makeTeamCtx();
+        mutateRemote(ctx, (doc) => {
+          Object.keys(doc.members).forEach(id => {
+            doc.members[id].slots = doc.members[id].slots.filter(k => !inWeek(k));
+          });
+          return doc;
+        }, `[${ctx.teamName}] Clear week ${weekDates[0]}`, null);
+      });
       document.getElementById('btnClearAllSlots').addEventListener('click', () => {
         localEditSeq++;
         state.members.forEach(m => { m.slots = []; });
@@ -2090,12 +3511,18 @@
         saveState();
         renderAll();
         closeResetModal();
-        showToast('모든 멤버의 선택 시간을 비웠습니다.');
-        replaceAllInDb(null);
+        showToast('모든 주차 · 모든 멤버의 선택 시간을 비웠습니다.');
+        const ctx = makeTeamCtx();
+        mutateRemote(ctx, (doc) => {
+          Object.keys(doc.members).forEach(id => { doc.members[id].slots = []; });
+          return doc;
+        }, `[${ctx.teamName}] Clear all slots`, null);
       });
       document.getElementById('btnLoadSampleData').addEventListener('click', () => {
         localEditSeq++;
-        state = createDefaultState();
+        pendingSyncMemberIds.clear();
+        // 현재 팀의 기간(시작 주 · 주차 수) 기준으로 예시 시간을 다시 만듭니다.
+        state = createSampleTeamState(state.teamId, state.startDate, state.weekCount);
         saveState();
         renderAll();
         closeResetModal();
@@ -2124,10 +3551,11 @@
       });
 
       // Initial render & auto-sync startup
+      updateTeamHash();
       renderAll();
       if (isConnectedConfig(syncConfig)) {
         if (joinedViaInviteLink) {
-          showToast('초대 링크로 자동 연결되었습니다! 최신 시간표를 불러옵니다.');
+          showToast(`초대 링크로 '${currentTeamName()}' 팀에 연결되었습니다! 최신 시간표를 불러옵니다.`);
         }
         fetchFromDb(true);
         restartAutoSync();
