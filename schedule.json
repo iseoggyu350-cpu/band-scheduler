@@ -1,13 +1,13 @@
 {
   "version": 2,
-  "updatedAt": "2026-11-22T08:32:41.833Z",
+  "updatedAt": "2026-11-23T06:34:23.895Z",
   "team": {
     "id": "default",
     "name": "우리 밴드",
     "colorIdx": 0,
     "startDate": "2026-11-23",
-    "weekCount": 4,
-    "updatedAt": "2026-11-22T08:32:41.833Z"
+    "weekCount": 1,
+    "updatedAt": "2026-11-23T06:34:23.895Z"
   },
   "members": {
     "m3": {
