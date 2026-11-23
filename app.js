@@ -9,11 +9,16 @@
   const SUPABASE_KEY = String(CONFIG.supabaseKey || '').trim();
   const LEGACY_REPO_DEFAULT = String(CONFIG.legacyGithubRepo || '').trim();
 
+  // 고른 밴드부·팀·"나"와 화면 설정은 이 탭(방문)에만 저장합니다 (sessionStorage).
+  // 새로고침해도 유지되지만, 새로 접속하면 누구든 밴드부 고르기부터 시작해요.
+  // 동아리방 컴퓨터처럼 여러 사람이 같은 기기를 써도 앞사람 선택이 남지 않아요.
   const SESSION_KEY = 'band_scheduler_session_v3';
   const UI_PREFIX = 'band_scheduler_ui_v3_';
   const ADMIN_CODE_KEY = 'band_scheduler_admin_v3';
   // 예전 GitHub 동기화 버전에서 이 기기에 저장해 둔 토큰. 더 이상 쓰지 않으므로 지웁니다.
   const OBSOLETE_KEYS = ['band_rehearsal_github_v1'];
+  // 이전 빌드가 기기(localStorage)에 남긴 선택 기록
+  const OBSOLETE_DEVICE_PREFIX = 'band_scheduler_';
 
   const DAYS = ['월', '화', '수', '목', '금', '토', '일'];
   const DEFAULT_WEEK_COUNT = 4;
@@ -242,10 +247,10 @@
   }
 
   // ===========================================================================
-  // 이 기기에 기억하는 것: 고른 밴드부 · 팀 · "나"
+  // 이 탭(방문)에서 고른 것: 밴드부 · 팀 · "나"
   // ===========================================================================
   function loadSession() {
-    const p = readJson(localStorage, SESSION_KEY) || {};
+    const p = readJson(sessionStorage, SESSION_KEY) || {};
     const me = {};
     if (p.me && typeof p.me === 'object') {
       Object.keys(p.me).forEach(k => {
@@ -260,7 +265,7 @@
   }
 
   function saveSession() {
-    writeJson(localStorage, SESSION_KEY, session);
+    writeJson(sessionStorage, SESSION_KEY, session);
   }
 
   // ===========================================================================
@@ -398,11 +403,11 @@
   let pollTimer = null;
 
   // ===========================================================================
-  // 팀별 화면 설정 (이 기기에만 저장)
+  // 팀별 화면 설정 (이 탭에만 저장)
   // ===========================================================================
   function saveState() {
     if (!state || !teamMeta) return;
-    writeJson(localStorage, UI_PREFIX + state.teamId, {
+    writeJson(sessionStorage, UI_PREFIX + state.teamId, {
       mode: state.mode,
       startHour: state.startHour,
       endHour: state.endHour,
@@ -440,7 +445,7 @@
   }
 
   function buildState(meta, memberRows) {
-    const prefs = readJson(localStorage, UI_PREFIX + meta.id) || {};
+    const prefs = readJson(sessionStorage, UI_PREFIX + meta.id) || {};
     const excluded = new Set(Array.isArray(prefs.excluded) ? prefs.excluded : []);
     const startHour = typeof prefs.startHour === 'number' ? Math.min(20, Math.max(0, prefs.startHour)) : 9;
     const endHour = typeof prefs.endHour === 'number' ? Math.min(24, Math.max(startHour + 1, prefs.endHour)) : 23;
@@ -505,7 +510,7 @@
     lastScrolledWeek = -1;
     localEditSeq++;
     saveState();
-    updateTeamHash();
+    cleanAddressBar();
     closeOnboarding();
     playTeamSwitchAnimation();
     renderAll();
@@ -522,9 +527,11 @@
     teamMeta = null;
   }
 
-  function updateTeamHash() {
+  // 주소창은 항상 첫 페이지 주소로 둡니다. 팀으로 바로 보내고 싶을 때는 "이 팀 링크 복사"를 써요.
+  function cleanAddressBar() {
+    if (!window.location.hash) return;
     try {
-      history.replaceState(null, '', window.location.pathname + window.location.search + (state ? '#t=' + state.teamId : ''));
+      history.replaceState(null, '', window.location.pathname + window.location.search);
     } catch (e) {}
   }
 
@@ -2634,6 +2641,7 @@
 
     window.addEventListener('hashchange', () => {
       const id = parseHashTeamId();
+      cleanAddressBar();
       if (id && (!state || id !== state.teamId)) openTeamFromLink(id);
     });
 
@@ -2910,7 +2918,7 @@
         delete session.me[teamId];
         session.teamId = null;
         saveSession();
-        removeKey(localStorage, UI_PREFIX + teamId);
+        removeKey(sessionStorage, UI_PREFIX + teamId);
         state = null;
         leaveTeam();
         showToast(`'${name}' 팀을 삭제했어요.`);
@@ -3166,6 +3174,12 @@
 
   function cleanupObsolete() {
     OBSOLETE_KEYS.forEach(k => removeKey(localStorage, k));
+    // 이전 빌드는 고른 팀·이름을 기기에 계속 저장했어요. 이제는 탭(방문)마다 따로라서 지웁니다.
+    try {
+      Object.keys(localStorage)
+        .filter(k => k.indexOf(OBSOLETE_DEVICE_PREFIX) === 0)
+        .forEach(k => removeKey(localStorage, k));
+    } catch (e) {}
     const hash = window.location.hash || '';
     if (/[#&](gh|team)=/.test(hash)) {
       // 예전 버전 초대 링크(토큰 포함)는 주소창에서 바로 지웁니다.
@@ -3203,14 +3217,16 @@
     }
 
     const linkTeamId = parseHashTeamId();
+    // 팀 링크로 들어와도 주소창에는 팀 주소를 남기지 않아요. (주소를 복사해 보내면 누구든 첫 페이지부터)
+    cleanAddressBar();
     const targetTeamId = linkTeamId || session.teamId;
     if (!targetTeamId) {
       openOnboarding(session.clubId ? 'team' : 'club', { clubId: session.clubId });
       return;
     }
 
-    // 지난번 보던 팀을 이 기기에 저장된 내용으로 먼저 보여주고, 서버에서 최신으로 바꿉니다.
-    const prefs = readJson(localStorage, UI_PREFIX + targetTeamId);
+    // 같은 탭에서 새로고침한 경우: 보던 팀을 저장된 내용으로 먼저 보여주고, 서버에서 최신으로 바꿉니다.
+    const prefs = readJson(sessionStorage, UI_PREFIX + targetTeamId);
     const meId = session.me[targetTeamId];
     const cached = prefs && prefs.cache && prefs.cache.team && prefs.cache.team.id === targetTeamId ? prefs.cache : null;
     const cachedMembers = cached && Array.isArray(cached.members) ? cached.members : null;
