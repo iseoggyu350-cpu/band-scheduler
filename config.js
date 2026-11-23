@@ -12,6 +12,7 @@ window.BAND_SCHEDULER_CONFIG = {
   supabaseUrl: 'https://wndwnzsoespfejdqiiea.supabase.co',
   supabaseKey: 'sb_publishable_9tggPHEDb8s2lcXgAXzOcQ_v0ltOnqq',
 
-  // 예전 GitHub 동기화 버전의 데이터(data 브랜치)를 가져올 저장소. 관리자 화면에서 한 번만 씁니다.
-  legacyGithubRepo: 'iseoggyu350-cpu/band-scheduler'
+  // 아이디 로그인용 도메인. Supabase 는 이메일 형식이 필요해서 '아이디@이 도메인' 으로 바꿔서 저장해요.
+  // 실제로 메일을 보내지는 않아요. ⚠️ 한 번 정하면 바꾸지 마세요 (바꾸면 기존 계정으로 로그인할 수 없어요).
+  loginEmailDomain: 'iseoggyu350-cpu.github.io'
 };

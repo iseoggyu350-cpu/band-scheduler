@@ -7,7 +7,10 @@
   const CONFIG = window.BAND_SCHEDULER_CONFIG || {};
   const SUPABASE_URL = String(CONFIG.supabaseUrl || '').trim().replace(/\/+$/, '');
   const SUPABASE_KEY = String(CONFIG.supabaseKey || '').trim();
-  const LEGACY_REPO_DEFAULT = String(CONFIG.legacyGithubRepo || '').trim();
+  // 아이디 로그인: Supabase 는 이메일 형식이 필요해서 '아이디@이 도메인' 으로 바꿔서 씁니다 (실제 메일은 안 보내요).
+  // 바꾸면 기존 계정으로 로그인할 수 없으니, 한 번 정하면 그대로 두세요.
+  const LOGIN_EMAIL_DOMAIN = String(CONFIG.loginEmailDomain || '').trim().toLowerCase().replace(/^@/, '');
+  const AUTH_STORAGE_KEY = 'band-scheduler-auth';
 
   // 고른 밴드부·팀·"나"와 화면 설정은 이 탭(방문)에만 저장합니다 (sessionStorage).
   // 새로고침해도 유지되지만, 새로 접속하면 누구든 밴드부 고르기부터 시작해요.
@@ -247,21 +250,11 @@
   }
 
   // ===========================================================================
-  // 이 탭(방문)에서 고른 것: 밴드부 · 팀 · "나"
+  // 이 탭(방문)에서 보고 있는 팀 (새로고침해도 그 팀으로)
   // ===========================================================================
   function loadSession() {
     const p = readJson(sessionStorage, SESSION_KEY) || {};
-    const me = {};
-    if (p.me && typeof p.me === 'object') {
-      Object.keys(p.me).forEach(k => {
-        if (isUuid(k) && isUuid(p.me[k])) me[k] = p.me[k];
-      });
-    }
-    return {
-      clubId: isUuid(p.clubId) ? p.clubId : null,
-      teamId: isUuid(p.teamId) ? p.teamId : null,
-      me
-    };
+    return { teamId: isUuid(p.teamId) ? p.teamId : null };
   }
 
   function saveSession() {
@@ -277,12 +270,20 @@
     const raw = (error && (error.message || error.details || error.hint || error.code)) || String(error || '');
     const msg = String(raw);
     if (/ADMIN_CODE_INVALID/.test(msg)) return '관리자 코드가 맞지 않아요';
+    if (/PASSWORD_TOO_SHORT/.test(msg)) return '비밀번호는 6자 이상이어야 해요';
+    if (/USER_NOT_FOUND/.test(msg)) return '계정을 찾을 수 없어요';
+    if (/MEMBER_OWNER_IMMUTABLE/.test(msg)) return '다른 사람 계정에 연결된 멤버예요';
+    if (/MEMBER_TEAM_IMMUTABLE/.test(msg)) return '멤버를 다른 팀으로 옮길 수 없어요';
+    if (/members_team_user_unique/.test(msg)) return '이미 이 팀에 참여해 있어요';
     if (/clubs_name_unique|duplicate key/i.test(msg)) return '같은 이름이 이미 있어요';
     if (/Failed to fetch|NetworkError|Load failed|network|fetch failed/i.test(msg)) return '인터넷 연결을 확인해주세요';
+    if (/row-level security/i.test(msg)) return '권한이 없어요 (본인이나 팀 멤버만 할 수 있어요)';
     if (/check constraint|violates/i.test(msg)) return '입력값이 올바르지 않아요';
     if (/foreign key/i.test(msg)) return '이미 삭제된 팀이에요';
-    if (/permission denied|row-level security|JWT|Invalid API key|No API key|apikey/i.test(msg)) return 'Supabase 설정(키/권한)을 확인해주세요';
-    if (/relation .* does not exist|Could not find the (table|function)|schema cache/i.test(msg)) return 'Supabase에 schema.sql을 먼저 실행해주세요';
+    if (/JWT expired|invalid JWT|refresh token/i.test(msg)) return '로그인이 만료됐어요. 다시 로그인해주세요';
+    if (/permission denied/i.test(msg)) return authUser ? '권한이 없어요' : '로그인이 필요해요';
+    if (/Invalid API key|No API key|apikey/i.test(msg)) return 'Supabase 설정(키)을 확인해주세요';
+    if (/relation .* does not exist|Could not find the (table|function)|schema cache|column .* does not exist/i.test(msg)) return 'Supabase에 최신 schema.sql을 실행해주세요';
     return msg || '알 수 없는 오류';
   }
 
@@ -311,7 +312,7 @@
     },
     listMembersBrief(teamIds) {
       if (!teamIds.length) return Promise.resolve([]);
-      return q(sb.from('members').select('id,team_id,name,part,sort_order,created_at').in('team_id', teamIds));
+      return q(sb.from('members').select('id,team_id,name,part,color_idx,sort_order,created_at,user_id').in('team_id', teamIds));
     },
     async getTeam(id) {
       const rows = await q(sb.from('teams').select('*').eq('id', id).limit(1));
@@ -340,6 +341,13 @@
     deleteMember(id) {
       return q(sb.from('members').delete().eq('id', id));
     },
+    async getProfile(id) {
+      const rows = await q(sb.from('profiles').select('*').eq('id', id).limit(1));
+      return rows && rows[0] ? rows[0] : null;
+    },
+    updateProfile(id, patch) {
+      return q(sb.from('profiles').update(patch).eq('id', id));
+    },
     rpc(fn, args) {
       return q(sb.rpc(fn, args || {}));
     }
@@ -349,6 +357,7 @@
     return {
       id: r.id,
       clubId: r.club_id,
+      createdBy: r.created_by || null,
       name: String(r.name || '팀'),
       colorIdx: Math.abs(Number(r.color_idx) || 0) % TEAM_COLORS.length,
       startDate: normalizeStartDate(r.start_date),
@@ -359,6 +368,7 @@
   function memberFromRow(r) {
     return {
       id: r.id,
+      userId: r.user_id || null,
       name: String(r.name || '멤버'),
       part: normalizePart(r.part),
       colorIdx: Math.abs(Number(r.color_idx) || 0) % MEMBER_COLORS.length,
@@ -378,7 +388,10 @@
   let session = loadSession();
   let clubs = [];
   let teamMeta = null; // { id, clubId, name, colorIdx }
-  let state = null; // 현재 팀 화면 상태 (멤버 + 이 기기 화면 설정)
+  let state = null; // 현재 팀 화면 상태 (멤버 + 이 탭 화면 설정)
+  let authUser = null; // 로그인한 계정 (Supabase Auth)
+  let profile = null; // { id, username, display_name, part, club_id }
+  let pendingTeamId = null; // 로그인 전에 팀 링크로 들어온 경우
 
   let isDragging = false;
   let dragPaintValue = true;
@@ -415,26 +428,7 @@
       minMembers: state.minMembers,
       viewWeek: state.viewWeek,
       recScope: state.recScope,
-      excluded: state.members.filter(m => !m.included).map(m => m.id),
-      cache: {
-        team: {
-          id: teamMeta.id,
-          club_id: teamMeta.clubId,
-          name: teamMeta.name,
-          color_idx: teamMeta.colorIdx,
-          start_date: state.startDate,
-          week_count: state.weekCount
-        },
-        members: state.members.map(m => ({
-          id: m.id,
-          name: m.name,
-          part: m.part,
-          color_idx: m.colorIdx,
-          sort_order: m.sortOrder,
-          created_at: m.createdAt,
-          slots: m.slots
-        }))
-      }
+      excluded: state.members.filter(m => !m.included).map(m => m.id)
     });
   }
 
@@ -467,42 +461,50 @@
       members: sortMembers(memberRows.map(memberFromRow)).map(m => Object.assign(m, { included: !excluded.has(m.id) }))
     };
     if (!s.members.some(m => m.id === s.activeMemberId)) {
-      const meId = session.me[meta.id];
-      s.activeMemberId = s.members.some(m => m.id === meId) ? meId : (s.members[0] ? s.members[0].id : null);
+      const mine = authUser ? s.members.find(m => m.userId === authUser.id) : null;
+      s.activeMemberId = mine ? mine.id : (s.members[0] ? s.members[0].id : null);
     }
     return s;
   }
 
+  // 이 팀에서 내 계정에 연결된 멤버
   function getMe() {
-    if (!state) return null;
-    const meId = session.me[state.teamId];
-    return state.members.find(m => m.id === meId) || null;
+    if (!state || !authUser) return null;
+    return state.members.find(m => m.userId === authUser.id) || null;
+  }
+
+  // 내 멤버는 나만, 게스트(가입 안 한 사람)는 팀 멤버 누구나 고칠 수 있어요.
+  function canEditMember(m) {
+    if (!m || !authUser) return false;
+    return m.userId ? m.userId === authUser.id : !!getMe();
+  }
+
+  // 팀 이름 · 기간 · 삭제: 팀 멤버나 팀을 만든 사람
+  function canManageTeam() {
+    return !!getMe() || !!(teamMeta && authUser && teamMeta.createdBy === authUser.id);
   }
 
   function stateSignature(meta, startDate, weekCount, members) {
     return JSON.stringify([
       meta.name, meta.colorIdx, startDate, weekCount,
-      members.map(m => [m.id, m.name, m.part, m.colorIdx, m.sortOrder, m.slots.slice().sort().join(',')])
+      members.map(m => [m.id, m.userId, m.name, m.part, m.colorIdx, m.sortOrder, m.slots.slice().sort().join(',')])
     ]);
   }
 
   // ===========================================================================
   // 팀 들어가기 / 나가기
   // ===========================================================================
-  function enterTeam(teamRow, memberRows, meChoice) {
+  function enterTeam(teamRow, memberRows, opts) {
+    const o = opts || {};
     leaveTeam();
     teamMeta = teamMetaFromRow(teamRow);
-    session.clubId = teamMeta.clubId;
     session.teamId = teamMeta.id;
-    if (meChoice !== undefined) {
-      if (meChoice) session.me[teamMeta.id] = meChoice;
-      else delete session.me[teamMeta.id];
-    }
     saveSession();
 
     state = buildState(teamMeta, memberRows || []);
-    if (meChoice) {
-      state.activeMemberId = meChoice;
+    const me = getMe();
+    if (o.focusMe && me) {
+      state.activeMemberId = me.id;
       state.mode = 'edit';
     }
     lastSyncError = null;
@@ -548,8 +550,7 @@
 
   function handleTeamDeleted() {
     const name = teamMeta ? teamMeta.name : '이 팀';
-    const clubId = teamMeta ? teamMeta.clubId : session.clubId;
-    if (state) delete session.me[state.teamId];
+    const clubId = teamMeta ? teamMeta.clubId : (profile && profile.club_id);
     session.teamId = null;
     saveSession();
     leaveTeam();
@@ -764,14 +765,35 @@
   }
 
   // ===========================================================================
-  // 온보딩: 밴드부(소속) → 팀 → 나는 누구?
+  // 로그인 · 온보딩: 로그인/가입 → (밴드부) → 팀 → 참여(이게 나예요 / 새로 참여)
   // ===========================================================================
+  const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
+
+  function usernameToEmail(username) {
+    return `${String(username || '').trim().toLowerCase()}@${LOGIN_EMAIL_DOMAIN}`;
+  }
+
+  function authErrorMessage(error) {
+    const text = `${(error && (error.code || error.error_code)) || ''} ${(error && error.message) || ''}`;
+    if (/user_already_exists|already registered/i.test(text)) return '이미 있는 아이디예요. 다른 아이디를 써주세요.';
+    if (/invalid_credentials|Invalid login credentials/i.test(text)) return '아이디 또는 비밀번호가 맞지 않아요.';
+    if (/weak_password|at least 6/i.test(text)) return '비밀번호는 6자 이상이어야 해요.';
+    if (/email_not_confirmed|not confirmed|confirmation email|sending .*email/i.test(text)) return '가입 설정이 아직 끝나지 않았어요. 관리자가 Supabase에서 "Confirm email"을 꺼야 해요.';
+    if (/email_address_invalid|validate email|invalid format|is invalid/i.test(text)) return '아이디를 확인해주세요. (영문 소문자 · 숫자 · _ 만 쓸 수 있어요)';
+    if (/Database error saving new user|unexpected_failure/i.test(text)) return '가입에 실패했어요. 아이디 형식을 확인하고, 계속되면 관리자에게 알려주세요.';
+    if (/rate limit|too many|over_request_rate_limit|429/i.test(text)) return '요청이 몰렸어요. 잠시 뒤 다시 시도해주세요.';
+    if (/signups? (are )?not allowed|signup.*disabled/i.test(text)) return '지금은 가입이 막혀 있어요. 관리자에게 문의해주세요.';
+    return friendlyError(error);
+  }
+
   const ob = {
     open: false,
-    step: 'club',
+    step: 'auth',
     reqId: 0,
     loading: false,
     error: '',
+    authTab: 'login',
+    busy: false,
     clubs: [],
     teamCounts: {},
     clubId: null,
@@ -793,12 +815,14 @@
     ob.error = '';
     $('onboarding').classList.remove('hidden');
     document.body.style.overflow = 'hidden';
-    if (step === 'me' && o.teamId) {
-      loadObMe(o.teamId, o);
-    } else if (step === 'team' && (o.clubId || session.clubId)) {
-      loadObTeams(o.clubId || session.clubId);
-    } else {
+    if (!authUser || step === 'auth') {
+      loadObAuth(o.tab);
+    } else if (step === 'join' && o.teamId) {
+      loadObJoin(o.teamId, o);
+    } else if (step === 'club') {
       loadObClubs();
+    } else {
+      loadObTeams(o.clubId || (profile && profile.club_id));
     }
   }
 
@@ -807,6 +831,51 @@
     ob.reqId++;
     $('onboarding').classList.add('hidden');
     document.body.style.overflow = '';
+  }
+
+  // 로그인 직후 · 새로 접속했을 때: 팀 링크로 왔으면 그 팀, 아니면 내 밴드부 팀 목록
+  function goHome() {
+    if (!profile || !profile.club_id || (clubs.length && !clubs.some(c => c.id === profile.club_id))) {
+      openOnboarding('club');
+    } else {
+      openOnboarding('team', { clubId: profile.club_id });
+    }
+  }
+
+  async function afterLogin(user) {
+    authUser = user;
+    try {
+      profile = await db.getProfile(user.id);
+      if (!profile) throw new Error('계정 정보를 찾을 수 없어요. 관리자에게 supabase/schema.sql을 다시 실행해달라고 해주세요.');
+      clubs = (await db.listClubs()) || [];
+    } catch (e) {
+      ob.open = true;
+      $('onboarding').classList.remove('hidden');
+      ob.step = 'auth';
+      ob.loading = false;
+      ob.error = e.message || '불러오기 실패';
+      renderOnboarding();
+      return;
+    }
+    const target = pendingTeamId || session.teamId;
+    pendingTeamId = null;
+    if (target) {
+      openOnboarding('join', { teamId: target, autoEnter: true });
+    } else {
+      goHome();
+    }
+  }
+
+  function handleSignedOut() {
+    if (!authUser && !state) return;
+    leaveTeam();
+    authUser = null;
+    profile = null;
+    session.teamId = null;
+    saveSession();
+    hideModal('profileModal');
+    // 다음 사람(또는 다시 로그인할 나)을 위해 항상 로그인 탭으로
+    openOnboarding('auth', { tab: 'login' });
   }
 
   async function obLoad(step, loader) {
@@ -828,6 +897,16 @@
     }
   }
 
+  function loadObAuth(tab) {
+    if (tab) ob.authTab = tab;
+    return obLoad('auth', async (isCurrent) => {
+      const rows = await db.listClubs();
+      if (!isCurrent()) return;
+      clubs = rows || [];
+      ob.clubs = clubs;
+    });
+  }
+
   function loadObClubs() {
     return obLoad('club', async (isCurrent) => {
       const [clubRows, teamRows] = await Promise.all([db.listClubs(), db.listTeamClubIds()]);
@@ -840,6 +919,7 @@
   }
 
   function loadObTeams(clubId) {
+    if (!clubId) return loadObClubs();
     ob.clubId = clubId;
     ob.filter = '';
     return obLoad('team', async (isCurrent) => {
@@ -848,12 +928,7 @@
       clubs = clubRows || [];
       ob.clubs = clubs;
       if (!clubs.some(c => c.id === clubId)) {
-        // 밴드부가 삭제되었거나 잘못된 주소 → 밴드부 고르기로
-        if (session.clubId === clubId) {
-          session.clubId = null;
-          saveSession();
-        }
-        throw new Error('이 밴드부를 찾을 수 없어요. 다시 골라주세요.');
+        throw new Error('이 밴드부를 찾을 수 없어요. 내 정보에서 밴드부를 다시 골라주세요.');
       }
       ob.teams = teamRows || [];
       const brief = await db.listMembersBrief(ob.teams.map(t => t.id));
@@ -866,9 +941,9 @@
     });
   }
 
-  function loadObMe(teamId, opts) {
+  function loadObJoin(teamId, opts) {
     const o = opts || {};
-    return obLoad('me', async (isCurrent) => {
+    return obLoad('join', async (isCurrent) => {
       const [teamRow, memberRows, clubRows] = await Promise.all([db.getTeam(teamId), db.listMembers(teamId), clubs.length ? Promise.resolve(clubs) : db.listClubs()]);
       if (!isCurrent()) return;
       clubs = clubRows || [];
@@ -877,39 +952,39 @@
           session.teamId = null;
           saveSession();
         }
-        ob.clubId = ob.clubId || session.clubId;
+        ob.clubId = profile ? profile.club_id : null;
         throw new Error('이 팀을 찾을 수 없어요. 삭제되었을 수 있어요.');
       }
       ob.teamRow = teamRow;
       ob.clubId = teamRow.club_id;
       ob.teamMembers = sortMembers((memberRows || []).map(memberFromRow));
-      // 이 팀에서 이미 "나"를 골랐던 적이 있으면 바로 들어갑니다.
-      const rememberedMe = session.me[teamId];
-      if (o.autoEnter && rememberedMe && ob.teamMembers.some(m => m.id === rememberedMe)) {
-        enterTeam(teamRow, memberRows || [], rememberedMe);
+      // 이미 참여한 팀이면 바로 들어갑니다.
+      if (o.autoEnter && ob.teamMembers.some(m => m.userId === authUser.id)) {
+        enterTeam(teamRow, memberRows || [], { focusMe: true });
       }
     });
   }
 
+  function obBackButton(act, label) {
+    return `<button type="button" data-act="${act}" class="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-200/70">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>${label}</button>`;
+  }
+
   function obTopBarHtml() {
-    const canClose = !!state;
-    let back = '';
-    if (ob.step === 'team') {
-      back = `<button type="button" data-act="ob-back-club" class="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-200/70">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>밴드부</button>`;
-    } else if (ob.step === 'me') {
-      back = `<button type="button" data-act="ob-back-team" class="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-200/70">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>팀 목록</button>`;
+    let left = '';
+    if (ob.step === 'join') left = obBackButton('ob-back-team', '팀 목록');
+    else if (ob.step === 'club' && profile && profile.club_id) left = obBackButton('ob-back-team', '팀 목록');
+    let right = '';
+    if (authUser && profile && ob.step !== 'auth') {
+      right += `<button type="button" data-act="open-profile" class="inline-flex items-center gap-1.5 max-w-[46vw] px-2.5 py-1.5 rounded-full bg-white border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100" title="내 정보 · 로그아웃">
+        <span>${PART_ICONS[profile.part] || '🙂'}</span><span class="truncate">${escapeHtml(profile.display_name)}</span>
+        <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></button>`;
     }
-    const steps = ['club', 'team', 'me'];
-    const idx = steps.indexOf(ob.step);
-    const dots = steps.map((s, i) => `<span class="h-1.5 rounded-full transition-all ${i === idx ? 'w-5 bg-indigo-600' : i < idx ? 'w-1.5 bg-indigo-300' : 'w-1.5 bg-slate-300'}"></span>`).join('');
-    return `
-      <div class="min-w-[88px]">${back}</div>
-      <div class="flex items-center gap-1" aria-hidden="true">${dots}</div>
-      <div class="min-w-[88px] flex justify-end">${canClose ? `<button type="button" data-act="ob-close" class="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/70" aria-label="닫기" title="보던 팀으로 돌아가기">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg></button>` : ''}</div>
-    `;
+    if (state && ob.step !== 'auth') {
+      right += `<button type="button" data-act="ob-close" class="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/70" aria-label="닫기" title="보던 팀으로 돌아가기">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg></button>`;
+    }
+    return `<div class="min-w-[40px]">${left}</div><div class="flex items-center gap-1">${right}</div>`;
   }
 
   function obHeading(emoji, title, sub) {
@@ -933,9 +1008,58 @@
       <div>${escapeHtml(ob.error)}</div>
       <div class="flex flex-wrap gap-2">
         <button type="button" data-act="ob-retry" class="px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-semibold hover:bg-rose-700">다시 시도</button>
-        <button type="button" data-act="ob-back-club" class="px-3 py-1.5 rounded-lg bg-white border border-rose-200 text-rose-700 text-xs font-semibold hover:bg-rose-100">밴드부 고르기</button>
+        ${authUser ? '<button type="button" data-act="ob-home" class="px-3 py-1.5 rounded-lg bg-white border border-rose-200 text-rose-700 text-xs font-semibold hover:bg-rose-100">처음으로</button>' : ''}
       </div>
     </div>`;
+  }
+
+  const INPUT_CLS = 'w-full px-3 py-2.5 text-sm rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500';
+  const LABEL_CLS = 'block text-xs font-semibold text-slate-700 mb-1';
+
+  function authStepHtml() {
+    const tab = ob.authTab === 'signup' ? 'signup' : 'login';
+    const tabBtn = (t, label) => `<button type="button" data-act="auth-tab" data-tab="${t}" class="flex-1 py-2 rounded-lg text-sm font-semibold transition ${tab === t ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'}">${label}</button>`;
+    let html = obHeading('🎸', '밴드 합주 시간표', '밴드부 팀원들과 합주 가능한 시간을 맞춰보세요.');
+    if (ob.error) {
+      html += `<div class="mb-3 p-3 rounded-xl bg-rose-50 border border-rose-200 text-sm text-rose-800">${escapeHtml(ob.error)}</div>`;
+    }
+    html += `<div class="p-1 mb-4 rounded-xl bg-slate-200/70 flex gap-1">${tabBtn('login', '로그인')}${tabBtn('signup', '회원가입')}</div>`;
+    html += `<div id="obAuthMsg" class="hidden mb-3 p-3 rounded-xl bg-rose-50 border border-rose-200 text-sm text-rose-800"></div>`;
+    if (tab === 'login') {
+      html += `<form id="obLoginForm" class="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3">
+        <div><label for="obLoginId" class="${LABEL_CLS}">아이디</label>
+          <input id="obLoginId" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" class="${INPUT_CLS}" /></div>
+        <div><label for="obLoginPw" class="${LABEL_CLS}">비밀번호</label>
+          <input id="obLoginPw" type="password" autocomplete="current-password" class="${INPUT_CLS}" /></div>
+        <button type="submit" class="w-full py-2.5 rounded-xl text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60">로그인</button>
+      </form>
+      <p class="mt-3 text-center text-xs text-slate-500">처음이면 <button type="button" data-act="auth-tab" data-tab="signup" class="font-semibold text-indigo-600 hover:underline">회원가입</button>부터 해주세요. 비밀번호를 잊으면 관리자에게 초기화를 부탁하세요.</p>`;
+    } else {
+      const clubOptions = ob.clubs.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+      html += `<form id="obSignupForm" class="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3">
+        <div><label for="obSuId" class="${LABEL_CLS}">아이디</label>
+          <input id="obSuId" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" placeholder="영문 소문자 · 숫자 · _ (3~20자)" class="${INPUT_CLS}" /></div>
+        <div class="grid grid-cols-2 gap-2">
+          <div><label for="obSuPw" class="${LABEL_CLS}">비밀번호</label>
+            <input id="obSuPw" type="password" autocomplete="new-password" placeholder="6자 이상" class="${INPUT_CLS}" /></div>
+          <div><label for="obSuPw2" class="${LABEL_CLS}">비밀번호 확인</label>
+            <input id="obSuPw2" type="password" autocomplete="new-password" class="${INPUT_CLS}" /></div>
+        </div>
+        <div><label for="obSuName" class="${LABEL_CLS}">이름 <span class="font-normal text-slate-400">(팀원들에게 보여요)</span></label>
+          <input id="obSuName" type="text" maxlength="16" placeholder="예: 이석규" class="${INPUT_CLS}" /></div>
+        <div class="grid grid-cols-2 gap-2">
+          <div><label for="obSuPart" class="${LABEL_CLS}">주 파트</label>
+            <select id="obSuPart" class="${INPUT_CLS}">${partOptionsHtml('보컬')}</select></div>
+          <div><label for="obSuClub" class="${LABEL_CLS}">밴드부</label>
+            <select id="obSuClub" class="${INPUT_CLS}" ${ob.clubs.length ? '' : 'disabled'}>${clubOptions || '<option value="">등록된 밴드부 없음</option>'}</select></div>
+        </div>
+        <button type="submit" class="w-full py-2.5 rounded-xl text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60" ${ob.clubs.length ? '' : 'disabled'}>가입하고 시작하기</button>
+        ${ob.clubs.length ? '' : '<p class="text-xs text-amber-700">아직 등록된 밴드부가 없어요. 관리자가 먼저 밴드부를 추가해야 해요.</p>'}
+      </form>
+      <p class="mt-3 text-center text-xs text-slate-500">비밀번호는 안전하게 암호화돼서 저장돼요. 잊어버리면 관리자에게 초기화를 부탁하세요.</p>`;
+    }
+    html += `<div class="mt-8 text-center"><button type="button" data-act="open-admin" class="text-xs text-slate-400 hover:text-slate-600 underline-offset-2 hover:underline">관리자</button></div>`;
+    return html;
   }
 
   function renderOnboarding() {
@@ -944,8 +1068,10 @@
     const body = $('obBody');
     let html = '';
 
-    if (ob.step === 'club') {
-      html += obHeading('🎸', '어느 밴드부인가요?', '소속 밴드부를 고르면 그 밴드부의 팀만 보여요.');
+    if (ob.step === 'auth') {
+      html = ob.loading ? obHeading('🎸', '밴드 합주 시간표', '') + obLoadingHtml() : authStepHtml();
+    } else if (ob.step === 'club') {
+      html += obHeading('🎸', '어느 밴드부인가요?', `${escapeHtml(profile ? profile.display_name : '')}님의 소속 밴드부를 골라주세요. 나중에 내 정보에서 바꿀 수 있어요.`);
       if (ob.loading) {
         html += obLoadingHtml();
       } else if (ob.error) {
@@ -958,11 +1084,11 @@
         html += '<div class="space-y-2">';
         ob.clubs.forEach(c => {
           const n = ob.teamCounts[c.id] || 0;
-          const isMine = c.id === session.clubId;
+          const isMine = profile && c.id === profile.club_id;
           html += `<button type="button" data-act="pick-club" data-id="${c.id}" class="w-full flex items-center gap-3 p-4 rounded-2xl bg-white border ${isMine ? 'border-indigo-400 ring-1 ring-indigo-400' : 'border-slate-200 hover:border-indigo-300'} shadow-sm text-left transition hover:bg-indigo-50/40">
             <span class="w-11 h-11 rounded-xl bg-slate-900 text-white flex items-center justify-center text-lg font-bold shrink-0">${escapeHtml(teamInitial(c.name))}</span>
             <span class="min-w-0 flex-1">
-              <span class="flex items-center gap-1.5"><span class="text-base font-bold text-slate-900 truncate">${escapeHtml(c.name)}</span>${isMine ? '<span class="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-600 text-white">최근</span>' : ''}</span>
+              <span class="flex items-center gap-1.5"><span class="text-base font-bold text-slate-900 truncate">${escapeHtml(c.name)}</span>${isMine ? '<span class="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-600 text-white">내 밴드부</span>' : ''}</span>
               <span class="block text-xs text-slate-500">팀 ${n}개</span>
             </span>
             <svg class="w-5 h-5 text-slate-300 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
@@ -970,7 +1096,6 @@
         });
         html += '</div>';
       }
-      html += `<div class="mt-8 text-center"><button type="button" data-act="open-admin" class="text-xs text-slate-400 hover:text-slate-600 underline-offset-2 hover:underline">관리자</button></div>`;
     } else if (ob.step === 'team') {
       const cName = clubName(ob.clubId);
       html += obHeading('🎶', '어떤 팀인가요?', `<strong class="text-slate-700">${escapeHtml(cName || '밴드부')}</strong>의 곡별 팀이나 고정 팀을 골라주세요.`);
@@ -980,12 +1105,12 @@
         html += obErrorHtml();
       } else {
         const filter = ob.filter.trim().toLowerCase();
-        const mine = (t) => !!session.me[t.id];
+        const mine = (t) => (ob.membersByTeam[t.id] || []).some(m => m.userId === authUser.id);
         const teams = ob.teams
           .filter(t => !filter || t.name.toLowerCase().includes(filter) || (ob.membersByTeam[t.id] || []).some(m => m.name.toLowerCase().includes(filter)))
           .sort((a, b) => (mine(b) - mine(a)) || (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
         if (ob.teams.length > 5) {
-          html += `<div class="mb-3"><input id="obTeamFilter" type="search" value="${escapeHtml(ob.filter)}" placeholder="팀 이름이나 멤버 이름으로 찾기" class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>`;
+          html += `<div class="mb-3"><input id="obTeamFilter" type="search" value="${escapeHtml(ob.filter)}" placeholder="팀 이름이나 멤버 이름으로 찾기" class="${INPUT_CLS}" /></div>`;
         }
         html += '<div id="obTeamList" class="space-y-2">';
         if (ob.teams.length === 0) {
@@ -995,14 +1120,13 @@
         }
         teams.forEach(t => {
           const members = ob.membersByTeam[t.id] || [];
-          const meId = session.me[t.id];
-          const me = members.find(m => m.id === meId);
+          const isMine = mine(t);
           const color = TEAM_COLORS[Math.abs(t.color_idx || 0) % TEAM_COLORS.length];
           const names = members.slice(0, 6).map(m => m.name).join(', ') + (members.length > 6 ? ` 외 ${members.length - 6}명` : '');
-          html += `<button type="button" data-act="pick-team" data-id="${t.id}" class="w-full flex items-center gap-3 p-3.5 rounded-2xl bg-white border ${me ? 'border-indigo-300' : 'border-slate-200'} hover:border-indigo-300 shadow-sm text-left transition hover:bg-indigo-50/40">
+          html += `<button type="button" data-act="pick-team" data-id="${t.id}" class="w-full flex items-center gap-3 p-3.5 rounded-2xl bg-white border ${isMine ? 'border-indigo-300' : 'border-slate-200'} hover:border-indigo-300 shadow-sm text-left transition hover:bg-indigo-50/40">
             <span class="w-11 h-11 rounded-xl text-white flex items-center justify-center text-lg font-bold shrink-0 shadow-sm" style="background:${color}">${escapeHtml(teamInitial(t.name))}</span>
             <span class="min-w-0 flex-1">
-              <span class="flex items-center gap-1.5 min-w-0"><span class="text-[15px] font-bold text-slate-900 truncate">${escapeHtml(t.name)}</span>${me ? `<span class="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-600 text-white">내 팀 · ${escapeHtml(me.name)}</span>` : ''}</span>
+              <span class="flex items-center gap-1.5 min-w-0"><span class="text-[15px] font-bold text-slate-900 truncate">${escapeHtml(t.name)}</span>${isMine ? '<span class="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-600 text-white">내 팀</span>' : ''}</span>
               <span class="block text-xs text-slate-500 truncate">${members.length ? `멤버 ${members.length}명 · ${escapeHtml(names)}` : '아직 멤버 없음'}</span>
             </span>
             <svg class="w-5 h-5 text-slate-300 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
@@ -1015,45 +1139,46 @@
             <input id="obNewTeamName" type="text" maxlength="30" placeholder="예: 곡 제목, 축제 공연팀" class="flex-1 min-w-0 px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
             <button type="submit" class="shrink-0 px-3.5 py-2 rounded-lg text-sm font-semibold bg-slate-900 text-white hover:bg-slate-800 transition">+ 만들기</button>
           </div>
-          <p class="text-[11px] text-slate-500">곡마다 팀을 따로 만들 수 있어요. 가능 시간은 팀마다 따로 입력해요.</p>
-        </form>`;
+          <p class="text-[11px] text-slate-500">만들면 내가 첫 멤버가 돼요. 가능 시간은 팀마다 따로 입력해요.</p>
+        </form>
+        <div class="mt-5 text-center"><button type="button" data-act="open-profile" class="text-xs text-slate-500 hover:text-slate-800 underline-offset-2 hover:underline">다른 밴드부로 바꾸기 · 내 정보</button></div>`;
       }
-    } else if (ob.step === 'me') {
+    } else if (ob.step === 'join') {
       const t = ob.teamRow;
-      const tName = t ? t.name : '';
-      html += obHeading('🙋', '누구신가요?', t ? `<strong class="text-slate-700">${escapeHtml(clubName(t.club_id))} › ${escapeHtml(tName)}</strong><br/>이름을 고르면 바로 내 가능 시간을 입력할 수 있어요.` : '');
+      html += obHeading('🙋', t ? `'${escapeHtml(t.name)}'에 참여할까요?` : '팀 참여', t ? `<strong class="text-slate-700">${escapeHtml(clubName(t.club_id))} › ${escapeHtml(t.name)}</strong>` : '');
       if (ob.loading) {
         html += obLoadingHtml();
       } else if (ob.error) {
         html += obErrorHtml();
       } else {
-        const meId = t ? session.me[t.id] : null;
-        if (ob.teamMembers.length === 0) {
-          html += `<div class="p-4 rounded-2xl bg-white border border-dashed border-slate-300 text-center text-sm text-slate-600">아직 멤버가 없어요. 첫 멤버로 이름을 추가해주세요.</div>`;
-        } else {
-          html += '<div class="grid grid-cols-2 gap-2">';
-          ob.teamMembers.forEach(m => {
+        const accounts = ob.teamMembers.filter(m => m.userId);
+        const myName = profile ? profile.display_name : '';
+        const sameName = (m) => !!myName && (m.name === myName || myName.includes(m.name) || m.name.includes(myName));
+        const guests = ob.teamMembers.filter(m => !m.userId).sort((a, b) => sameName(b) - sameName(a));
+        if (accounts.length) {
+          html += `<p class="mb-3 text-xs text-slate-500 text-center">참여 중: ${accounts.map(m => escapeHtml(m.name)).join(', ')}</p>`;
+        }
+        html += `<button type="button" data-act="join-new" class="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm">
+          새로 참여하기 · ${PART_ICONS[profile ? profile.part : ''] || '🎵'} ${escapeHtml(myName)}</button>`;
+        if (guests.length) {
+          html += `<div class="mt-5 p-3.5 rounded-2xl bg-white border border-slate-200 shadow-sm">
+            <div class="text-xs font-bold text-slate-700">예전에 내 이름이 들어가 있었다면</div>
+            <p class="text-[11px] text-slate-500 mb-2.5">골라서 이어받으면 입력해 둔 시간이 그대로 내 것이 돼요.</p>
+            <div class="grid grid-cols-2 gap-2">`;
+          guests.forEach(m => {
             const c = MEMBER_COLORS[m.colorIdx % MEMBER_COLORS.length];
-            const isMe = m.id === meId;
-            html += `<button type="button" data-act="pick-me" data-id="${m.id}" class="flex items-center gap-2 p-3 rounded-2xl bg-white border ${isMe ? 'border-indigo-500 ring-2 ring-indigo-500' : 'border-slate-200 hover:border-indigo-300'} shadow-sm text-left transition hover:bg-indigo-50/40 min-w-0">
-              <span class="w-9 h-9 rounded-xl flex items-center justify-center text-lg shrink-0" style="background:${c.bg}; border:1px solid ${c.border}">${PART_ICONS[m.part] || '🎵'}</span>
+            const same = sameName(m);
+            html += `<button type="button" data-act="claim" data-id="${m.id}" class="flex items-center gap-2 p-2.5 rounded-xl border ${same ? 'border-emerald-400 ring-1 ring-emerald-400 bg-emerald-50/50' : 'border-slate-200 hover:border-indigo-300'} text-left transition hover:bg-indigo-50/40 min-w-0">
+              <span class="w-8 h-8 rounded-lg flex items-center justify-center text-base shrink-0" style="background:${c.bg}; border:1px solid ${c.border}">${PART_ICONS[m.part] || '🎵'}</span>
               <span class="min-w-0">
                 <span class="block text-sm font-bold text-slate-900 truncate">${escapeHtml(m.name)}</span>
-                <span class="block text-[11px] text-slate-500">${escapeHtml(m.part)}${isMe ? ' · 나' : ''}</span>
+                <span class="block text-[11px] ${same ? 'text-emerald-700 font-semibold' : 'text-slate-500'}">${same ? '이름이 같아요 · 이게 나예요' : `${escapeHtml(m.part)} · 이게 나예요`}</span>
               </span>
             </button>`;
           });
-          html += '</div>';
+          html += '</div></div>';
         }
-        html += `<form id="obAddMeForm" class="mt-4 p-3.5 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-2">
-          <label for="obMyName" class="block text-xs font-bold text-slate-700">${ob.teamMembers.length ? '목록에 내 이름이 없어요' : '내 이름 추가'}</label>
-          <div class="flex flex-wrap sm:flex-nowrap gap-2">
-            <input id="obMyName" type="text" maxlength="16" placeholder="이름 (예: 지수)" class="w-full sm:w-auto sm:flex-1 min-w-0 px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-            <select id="obMyPart" class="flex-1 sm:flex-none min-w-0 px-2.5 py-2 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">${partOptionsHtml('보컬')}</select>
-            <button type="submit" class="shrink-0 px-3.5 py-2 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition">추가하고 시작</button>
-          </div>
-        </form>
-        <div class="mt-5 text-center"><button type="button" data-act="browse-only" class="text-sm font-medium text-slate-500 hover:text-slate-800 underline-offset-2 hover:underline">입력 없이 둘러보기만 할게요</button></div>`;
+        html += `<div class="mt-5 text-center"><button type="button" data-act="browse-only" class="text-sm font-medium text-slate-500 hover:text-slate-800 underline-offset-2 hover:underline">참여하지 않고 둘러보기만 할게요</button></div>`;
       }
     }
 
@@ -1074,6 +1199,108 @@
     }
   }
 
+  function showAuthMsg(msg) {
+    const el = $('obAuthMsg');
+    if (!el) {
+      showToast(msg);
+      return;
+    }
+    el.textContent = msg;
+    el.classList.toggle('hidden', !msg);
+  }
+
+  function setFormBusy(form, busy, busyLabel) {
+    const btn = form && form.querySelector('button[type=submit]');
+    if (!btn) return;
+    if (busy) {
+      btn.dataset.label = btn.textContent;
+      btn.textContent = busyLabel || '확인 중...';
+      btn.disabled = true;
+    } else {
+      btn.textContent = btn.dataset.label || btn.textContent;
+      btn.disabled = false;
+    }
+  }
+
+  async function doLogin(form) {
+    const id = $('obLoginId').value.trim().toLowerCase();
+    const pw = $('obLoginPw').value;
+    if (!id || !pw) {
+      showAuthMsg('아이디와 비밀번호를 입력해주세요.');
+      return;
+    }
+    if (!USERNAME_RE.test(id)) {
+      showAuthMsg('아이디 또는 비밀번호가 맞지 않아요.');
+      return;
+    }
+    setFormBusy(form, true, '로그인 중...');
+    showAuthMsg('');
+    try {
+      const { data, error } = await sb.auth.signInWithPassword({ email: usernameToEmail(id), password: pw });
+      if (error) throw error;
+      ob.error = '';
+      await afterLogin(data.user);
+    } catch (e) {
+      setFormBusy(form, false);
+      showAuthMsg(authErrorMessage(e));
+    }
+  }
+
+  async function doSignup(form) {
+    const id = $('obSuId').value.trim().toLowerCase();
+    const pw = $('obSuPw').value;
+    const pw2 = $('obSuPw2').value;
+    const name = cleanName($('obSuName').value, 16);
+    const part = normalizePart($('obSuPart').value);
+    const clubId = $('obSuClub').value;
+    if (!USERNAME_RE.test(id)) return showAuthMsg('아이디는 영문 소문자 · 숫자 · _ 로 3~20자여야 해요.');
+    if (pw.length < 6) return showAuthMsg('비밀번호는 6자 이상이어야 해요.');
+    if (pw !== pw2) return showAuthMsg('비밀번호 확인이 달라요.');
+    if (!name) return showAuthMsg('팀원들에게 보일 이름을 입력해주세요.');
+    if (!isUuid(clubId)) return showAuthMsg('밴드부를 골라주세요.');
+    setFormBusy(form, true, '가입하는 중...');
+    showAuthMsg('');
+    try {
+      const { data, error } = await sb.auth.signUp({
+        email: usernameToEmail(id),
+        password: pw,
+        options: { data: { display_name: name, part, club_id: clubId } }
+      });
+      if (error) throw error;
+      if (!data.session) {
+        throw new Error('confirmation email required');
+      }
+      showToast(`환영해요, ${name}님! 아이디: ${id}`);
+      await afterLogin(data.user);
+    } catch (e) {
+      setFormBusy(form, false);
+      showAuthMsg(/confirmation email required/.test(e.message || '')
+        ? '가입은 됐지만 바로 로그인되지 않았어요. 관리자가 Supabase에서 "Confirm email"을 꺼야 해요.'
+        : authErrorMessage(e));
+    }
+  }
+
+  function unusedColorIdx(usedList, count, palette) {
+    const used = new Set(usedList);
+    for (let i = 0; i < palette.length; i++) {
+      if (!used.has(i)) return i;
+    }
+    return count % palette.length;
+  }
+
+  function myMemberRow(teamId, existing) {
+    return {
+      id: uuid(),
+      team_id: teamId,
+      name: profile.display_name,
+      part: normalizePart(profile.part),
+      color_idx: unusedColorIdx(existing.map(m => m.colorIdx), existing.length, MEMBER_COLORS),
+      sort_order: existing.reduce((mx, m) => Math.max(mx, m.sortOrder), -1) + 1,
+      slots: [],
+      user_id: authUser.id
+    };
+  }
+
   async function obCreateTeam(name) {
     const clean = cleanName(name, 30);
     if (!clean) {
@@ -1083,66 +1310,64 @@
     if (ob.teams.some(t => t.name.trim() === clean)) {
       if (!window.confirm(`'${clean}' 팀이 이미 있어요. 그래도 같은 이름으로 새 팀을 만들까요?`)) return;
     }
-    const used = new Set(ob.teams.map(t => t.color_idx));
-    let colorIdx = ob.teams.length % TEAM_COLORS.length;
-    for (let i = 0; i < TEAM_COLORS.length; i++) {
-      if (!used.has(i)) {
-        colorIdx = i;
-        break;
-      }
-    }
-    const row = {
+    const teamRow = {
       id: uuid(),
       club_id: ob.clubId,
       name: clean,
-      color_idx: colorIdx,
+      color_idx: unusedColorIdx(ob.teams.map(t => t.color_idx), ob.teams.length, TEAM_COLORS),
       start_date: defaultStartDateStr(),
-      week_count: DEFAULT_WEEK_COUNT
+      week_count: DEFAULT_WEEK_COUNT,
+      created_by: authUser.id
     };
     try {
-      await db.insertTeam(row);
-      showToast(`'${clean}' 팀을 만들었어요! 이제 내 이름을 추가해주세요.`);
-      loadObMe(row.id);
+      await db.insertTeam(teamRow);
     } catch (e) {
       showToast('팀 만들기 실패: ' + e.message);
+      return;
+    }
+    try {
+      const me = myMemberRow(teamRow.id, []);
+      await db.insertMembers([me]);
+      enterTeam(Object.assign({ created_at: new Date().toISOString() }, teamRow), [Object.assign({ created_at: new Date().toISOString() }, me)], { focusMe: true });
+      showToast(`'${clean}' 팀을 만들었어요! 가능한 시간을 칠하고, 팀 링크를 팀원들에게 보내주세요.`);
+    } catch (e) {
+      showToast('팀은 만들었지만 참여에 실패했어요: ' + e.message);
+      loadObJoin(teamRow.id);
     }
   }
 
-  async function obAddMe(name, part) {
-    const clean = cleanName(name, 16);
-    if (!clean || !ob.teamRow) {
-      showToast('이름을 입력해주세요.');
-      return;
-    }
-    const existing = ob.teamMembers.find(m => m.name === clean);
-    if (existing && window.confirm(`'${clean}' 님이 이미 이 팀에 있어요. 그 이름으로 들어갈까요?\n\n(취소를 누르면 같은 이름으로 한 명 더 추가해요)`)) {
-      enterTeam(ob.teamRow, ob.teamMembers.map(memberToRow), existing.id);
-      return;
-    }
-    const used = new Set(ob.teamMembers.map(m => m.colorIdx));
-    let colorIdx = ob.teamMembers.length % MEMBER_COLORS.length;
-    for (let i = 0; i < MEMBER_COLORS.length; i++) {
-      if (!used.has(i)) {
-        colorIdx = i;
-        break;
-      }
-    }
-    const row = {
-      id: uuid(),
-      team_id: ob.teamRow.id,
-      name: clean,
-      part: normalizePart(part),
-      color_idx: colorIdx,
-      sort_order: ob.teamMembers.reduce((mx, m) => Math.max(mx, m.sortOrder), -1) + 1,
-      slots: []
-    };
+  async function obJoinNew() {
+    const t = ob.teamRow;
+    if (!t) return;
     try {
-      await db.insertMembers([row]);
-      const rows = ob.teamMembers.map(memberToRow).concat([Object.assign({ created_at: new Date().toISOString() }, row)]);
-      enterTeam(ob.teamRow, rows, row.id);
-      showToast(`환영해요, ${clean}님! 가능한 시간을 칠해주세요.`);
+      await db.insertMembers([myMemberRow(t.id, ob.teamMembers)]);
+      const rows = await db.listMembers(t.id);
+      enterTeam(t, rows || [], { focusMe: true });
+      showToast(`'${t.name}'에 참여했어요! 가능한 시간을 칠해주세요.`);
     } catch (e) {
-      showToast('추가 실패: ' + e.message);
+      showToast('참여 실패: ' + e.message);
+      loadObJoin(t.id, { autoEnter: true });
+    }
+  }
+
+  async function obClaim(memberId) {
+    const t = ob.teamRow;
+    const g = ob.teamMembers.find(m => m.id === memberId && !m.userId);
+    if (!t || !g) return;
+    if (!window.confirm(`'${g.name}'의 가능 시간을 이어받을까요?\n\n이 멤버가 내 계정에 연결되고, 이름은 '${profile.display_name}'(으)로 바뀌어요.`)) return;
+    try {
+      await db.updateMember(g.id, { user_id: authUser.id });
+      const rows = (await db.listMembers(t.id)) || [];
+      if (!rows.some(r => r.user_id === authUser.id)) {
+        showToast('이미 다른 사람이 이어받았어요. 목록을 새로 불러올게요.');
+        loadObJoin(t.id);
+        return;
+      }
+      enterTeam(t, rows, { focusMe: true });
+      showToast(`'${g.name}'의 시간을 이어받았어요!`);
+    } catch (e) {
+      showToast('이어받기 실패: ' + e.message);
+      loadObJoin(t.id, { autoEnter: true });
     }
   }
 
@@ -1154,32 +1379,113 @@
       color_idx: m.colorIdx,
       sort_order: m.sortOrder,
       created_at: m.createdAt,
-      slots: m.slots
+      slots: m.slots,
+      user_id: m.userId
     };
   }
 
   // 팀 주소(#t=팀ID)로 들어왔을 때
   function openTeamFromLink(teamId) {
     if (state && state.teamId === teamId) return;
+    if (!authUser) {
+      pendingTeamId = teamId;
+      openOnboarding('auth');
+      return;
+    }
     leaveTeam();
-    openOnboarding('me', { teamId, autoEnter: true });
+    openOnboarding('join', { teamId, autoEnter: true });
   }
 
   // ===========================================================================
-  // 관리자: 밴드부(소속) 관리 · 예전 데이터 가져오기
+  // 내 정보 (이름 · 파트 · 밴드부 · 비밀번호 · 로그아웃)
+  // ===========================================================================
+  function openProfileModal() {
+    if (!profile) return;
+    $('profileUsername').textContent = profile.username;
+    $('profileName').value = profile.display_name;
+    $('profilePart').innerHTML = partOptionsHtml(profile.part);
+    const sel = $('profileClub');
+    sel.innerHTML = clubs.map(c => `<option value="${c.id}" ${c.id === profile.club_id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('') ||
+      '<option value="">등록된 밴드부 없음</option>';
+    if (!profile.club_id) sel.value = '';
+    $('profileNewPw').value = '';
+    $('profileNewPw2').value = '';
+    showModal('profileModal');
+  }
+
+  async function saveProfile() {
+    const name = cleanName($('profileName').value, 16);
+    const part = normalizePart($('profilePart').value);
+    const clubId = $('profileClub').value || null;
+    if (!name) {
+      showToast('이름을 입력해주세요.');
+      return;
+    }
+    const clubChanged = clubId !== profile.club_id;
+    try {
+      await db.updateProfile(authUser.id, { display_name: name, part, club_id: clubId });
+      profile = Object.assign({}, profile, { display_name: name, part, club_id: clubId });
+      hideModal('profileModal');
+      showToast('내 정보를 저장했어요.');
+      if (state) {
+        refreshTeam(true);
+        renderAll();
+      }
+      if (ob.open && ob.step !== 'auth') {
+        if (clubChanged || ob.step === 'club') openOnboarding('team', { clubId: profile.club_id });
+        else renderOnboarding();
+      }
+    } catch (e) {
+      showToast('저장 실패: ' + e.message);
+    }
+  }
+
+  async function changePassword() {
+    const pw = $('profileNewPw').value;
+    const pw2 = $('profileNewPw2').value;
+    if (pw.length < 6) {
+      showToast('새 비밀번호는 6자 이상이어야 해요.');
+      return;
+    }
+    if (pw !== pw2) {
+      showToast('새 비밀번호 확인이 달라요.');
+      return;
+    }
+    const { error } = await sb.auth.updateUser({ password: pw });
+    if (error) {
+      showToast('비밀번호 변경 실패: ' + authErrorMessage(error));
+      return;
+    }
+    $('profileNewPw').value = '';
+    $('profileNewPw2').value = '';
+    showToast('비밀번호를 바꿨어요.');
+  }
+
+  async function logout() {
+    if (!window.confirm('로그아웃할까요?')) return;
+    flushPendingMemberSync();
+    try {
+      await writeQueue;
+    } catch (e) {}
+    try {
+      await sb.auth.signOut({ scope: 'local' });
+    } catch (e) {}
+    handleSignedOut();
+    showToast('로그아웃했어요.');
+  }
+
+  // ===========================================================================
+  // 관리자: 밴드부(소속) · 계정 · 팀 관리
   // ===========================================================================
   const admin = {
     code: '',
     configured: null,
-    checking: false,
     clubs: [],
     teamCounts: {},
     busy: false,
-    legacyRepo: LEGACY_REPO_DEFAULT,
-    legacy: null,
-    legacyLoading: false,
-    legacyError: '',
-    legacyTargetClub: ''
+    users: null,
+    userFilter: '',
+    teams: null
   };
 
   function openAdmin() {
@@ -1210,7 +1516,8 @@
   function adminLogout() {
     admin.code = '';
     removeKey(sessionStorage, ADMIN_CODE_KEY);
-    admin.legacy = null;
+    admin.users = null;
+    admin.teams = null;
     renderAdmin();
   }
 
@@ -1227,14 +1534,35 @@
 
   async function loadAdminClubs() {
     try {
-      const [clubRows, teamRows] = await Promise.all([db.listClubs(), db.listTeamClubIds()]);
+      const [clubRows, teamRows] = await Promise.all([db.listClubs(), adminCall('admin_list_teams')]);
       admin.clubs = clubRows || [];
       clubs = admin.clubs;
       admin.teamCounts = {};
-      (teamRows || []).forEach(t => { admin.teamCounts[t.club_id] = (admin.teamCounts[t.club_id] || 0) + 1; });
-      if (!admin.clubs.some(c => c.id === admin.legacyTargetClub)) {
-        admin.legacyTargetClub = admin.clubs[0] ? admin.clubs[0].id : '';
-      }
+      const byName = {};
+      admin.clubs.forEach(c => { byName[c.name] = c.id; });
+      (teamRows || []).forEach(t => {
+        const id = byName[t.club_name];
+        if (id) admin.teamCounts[id] = (admin.teamCounts[id] || 0) + 1;
+      });
+      if (admin.teams) admin.teams = teamRows || [];
+    } catch (e) {
+      showToast(e.message);
+    }
+    renderAdmin();
+  }
+
+  async function loadAdminUsers() {
+    try {
+      admin.users = (await adminCall('admin_list_users')) || [];
+    } catch (e) {
+      showToast(e.message);
+    }
+    renderAdmin();
+  }
+
+  async function loadAdminTeams() {
+    try {
+      admin.teams = (await adminCall('admin_list_teams')) || [];
     } catch (e) {
       showToast(e.message);
     }
@@ -1244,115 +1572,10 @@
   function afterClubsChanged() {
     loadAdminClubs();
     if (ob.open && ob.step === 'club') loadObClubs();
+    if (ob.open && ob.step === 'auth') loadObAuth();
     if (state) renderHeader();
   }
 
-  function renderAdmin() {
-    const body = $('adminBody');
-    if (!admin.code) {
-      body.innerHTML = `
-        <div id="adminLoginNote"></div>
-        <form id="adminLoginForm" class="space-y-2">
-          <label for="adminCodeInput" class="block font-semibold text-slate-800">관리자 코드</label>
-          <div class="flex gap-2">
-            <input id="adminCodeInput" type="password" autocomplete="current-password" class="flex-1 min-w-0 px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-            <button type="submit" class="shrink-0 px-4 py-2 rounded-lg text-sm font-semibold bg-slate-900 text-white hover:bg-slate-800">확인</button>
-          </div>
-          <p class="text-[11px] text-slate-500">관리자는 밴드부(소속)를 추가·수정·삭제할 수 있어요. 팀은 학생 누구나 만들 수 있어요.</p>
-        </form>
-      `;
-      renderAdminLoginNote();
-      setTimeout(() => { const i = $('adminCodeInput'); if (i && document.activeElement !== i) i.focus(); }, 30);
-      return;
-    }
-
-    const clubRows = admin.clubs.map((c, i) => `
-      <div class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-slate-200">
-        <div class="min-w-0 flex-1">
-          <div class="font-semibold text-sm text-slate-900 truncate">${escapeHtml(c.name)}</div>
-          <div class="text-[11px] text-slate-500">팀 ${admin.teamCounts[c.id] || 0}개</div>
-        </div>
-        <button type="button" data-admin="move-up" data-id="${c.id}" class="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-30" ${i === 0 ? 'disabled' : ''} title="위로">▲</button>
-        <button type="button" data-admin="move-down" data-id="${c.id}" class="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-30" ${i === admin.clubs.length - 1 ? 'disabled' : ''} title="아래로">▼</button>
-        <button type="button" data-admin="rename" data-id="${c.id}" class="px-2 py-1 rounded-md font-semibold text-indigo-600 hover:bg-indigo-50">이름 변경</button>
-        <button type="button" data-admin="delete" data-id="${c.id}" class="px-2 py-1 rounded-md font-semibold text-rose-600 hover:bg-rose-50">삭제</button>
-      </div>
-    `).join('');
-
-    let legacyHtml = '';
-    if (admin.legacyLoading) {
-      legacyHtml = '<div class="text-[11px] text-slate-500">GitHub 저장소를 확인하는 중...</div>';
-    } else if (admin.legacyError) {
-      legacyHtml = `<div class="text-[11px] text-rose-600">${escapeHtml(admin.legacyError)}</div>`;
-    } else if (admin.legacy) {
-      if (admin.legacy.length === 0) {
-        legacyHtml = '<div class="text-[11px] text-slate-500">가져올 팀이 없어요.</div>';
-      } else {
-        const targetTeams = admin.legacyExistingNames || new Set();
-        legacyHtml = `
-          <div class="space-y-1.5">
-            ${admin.legacy.map((t, i) => {
-              const dup = targetTeams.has(t.name);
-              return `<label class="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-slate-200 ${dup ? 'opacity-60' : ''}">
-                <input type="checkbox" data-legacy-idx="${i}" class="w-4 h-4 accent-indigo-600" ${t.checked && !dup ? 'checked' : ''} ${dup ? 'disabled' : ''} />
-                <span class="min-w-0 flex-1">
-                  <span class="block font-semibold text-slate-800 truncate">${escapeHtml(t.name)}</span>
-                  <span class="block text-[11px] text-slate-500 truncate">${t.members.length}명${t.members.length ? ' · ' + escapeHtml(t.members.map(m => m.name).join(', ')) : ''} · ${t.weekCount}주 (${formatMD(t.startDate)}~)</span>
-                </span>
-                ${dup ? '<span class="shrink-0 text-[10px] font-semibold text-slate-500">이미 있음</span>' : ''}
-              </label>`;
-            }).join('')}
-          </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <label for="legacyTargetClub" class="font-semibold text-slate-700">가져올 밴드부</label>
-            <select id="legacyTargetClub" class="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white">
-              ${admin.clubs.map(c => `<option value="${c.id}" ${c.id === admin.legacyTargetClub ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
-            </select>
-            <button type="button" data-admin="legacy-import" class="shrink-0 px-3 py-1.5 rounded-lg font-semibold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50" ${admin.clubs.length ? '' : 'disabled'}>선택한 팀 가져오기</button>
-          </div>
-          ${admin.clubs.length ? '' : '<div class="text-[11px] text-amber-700">먼저 위에서 밴드부를 하나 이상 추가해주세요.</div>'}
-        `;
-      }
-    }
-
-    body.innerHTML = `
-      <section class="space-y-2">
-        <div class="flex items-center justify-between">
-          <h4 class="font-bold text-slate-900 text-sm">밴드부(소속) 목록</h4>
-          <span class="text-[11px] text-slate-500">${admin.clubs.length}개</span>
-        </div>
-        <div class="space-y-1.5">${clubRows || '<div class="px-3 py-2 rounded-xl border border-dashed border-slate-300 text-slate-500">아직 밴드부가 없어요.</div>'}</div>
-        <form id="adminAddClubForm" class="flex gap-2">
-          <input id="adminNewClubName" type="text" maxlength="30" placeholder="새 밴드부 이름 (예: 메아리)" class="flex-1 min-w-0 px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-          <button type="submit" class="shrink-0 px-3.5 py-2 rounded-lg text-sm font-semibold bg-slate-900 text-white hover:bg-slate-800">+ 추가</button>
-        </form>
-      </section>
-
-      <section class="space-y-2 p-3 rounded-xl bg-slate-50 border border-slate-200">
-        <h4 class="font-bold text-slate-900 text-sm">예전 데이터 가져오기 (GitHub 동기화 버전)</h4>
-        <p class="text-[11px] text-slate-500 leading-relaxed">예전 버전에서 GitHub <code class="font-mono">data</code> 브랜치에 저장된 팀과 시간을 그대로 옮겨와요. 공개 저장소라 토큰은 필요 없어요.</p>
-        <div class="flex gap-2">
-          <input id="legacyRepoInput" type="text" value="${escapeHtml(admin.legacyRepo)}" placeholder="아이디/저장소명" class="flex-1 min-w-0 px-3 py-1.5 font-mono rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-          <button type="button" data-admin="legacy-load" class="shrink-0 px-3 py-1.5 rounded-lg font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-100">불러오기</button>
-        </div>
-        ${legacyHtml}
-      </section>
-
-      <section class="space-y-2">
-        <h4 class="font-bold text-slate-900 text-sm">관리자 코드 바꾸기</h4>
-        <form id="adminChangeCodeForm" class="flex gap-2">
-          <input id="adminNewCode" type="password" autocomplete="new-password" minlength="4" placeholder="새 코드 (4글자 이상)" class="flex-1 min-w-0 px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-          <button type="submit" class="shrink-0 px-3.5 py-2 rounded-lg text-sm font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-100">변경</button>
-        </form>
-      </section>
-
-      <div class="flex justify-end">
-        <button type="button" data-admin="logout" class="px-3 py-1.5 rounded-lg font-medium text-slate-500 hover:bg-slate-100">관리자 로그아웃</button>
-      </div>
-    `;
-  }
-
-  // 로그인 화면의 안내 문구만 바꿉니다 (입력 중인 코드 칸은 건드리지 않음).
   function renderAdminLoginNote() {
     const el = $('adminLoginNote');
     if (!el) return;
@@ -1364,145 +1587,110 @@
       : '';
   }
 
-  // 예전 GitHub 버전 데이터 파일 형식을 정리합니다.
-  function parseLegacyDoc(parsed, fallbackName) {
-    const obj = parsed && typeof parsed === 'object' ? parsed : {};
-    const teamObj = obj.team && typeof obj.team === 'object' ? obj.team : null;
-    const startDate = teamObj && isValidDateStr(teamObj.startDate) ? normalizeStartDate(teamObj.startDate) : defaultStartDateStr();
-    const rawMembers = obj.members && typeof obj.members === 'object' ? obj.members : (teamObj ? {} : obj);
-    const members = [];
-    Object.keys(rawMembers).forEach((key, idx) => {
-      const m = rawMembers[key];
-      if (!m || typeof m !== 'object' || Array.isArray(m)) return;
-      members.push({
-        name: cleanName(m.name, 16) || '멤버',
-        part: normalizePart(m.part),
-        colorIdx: typeof m.colorIdx === 'number' ? Math.abs(m.colorIdx) % MEMBER_COLORS.length : idx % MEMBER_COLORS.length,
-        order: typeof m.order === 'number' ? m.order : idx,
-        slots: normalizeSlots(m.slots, startDate).slice(0, MAX_SLOTS_PER_MEMBER)
-      });
-    });
-    members.sort((a, b) => a.order - b.order);
-    return {
-      name: cleanName(teamObj && teamObj.name, 30) || fallbackName,
-      colorIdx: teamObj && typeof teamObj.colorIdx === 'number' ? Math.abs(teamObj.colorIdx) % TEAM_COLORS.length : 0,
-      startDate,
-      weekCount: clampWeekCount(teamObj && teamObj.weekCount),
-      members
-    };
+  function adminSection(title, right, inner) {
+    return `<section class="space-y-2">
+      <div class="flex items-center justify-between gap-2">
+        <h4 class="font-bold text-slate-900 text-sm">${title}</h4>
+        ${right || ''}
+      </div>
+      ${inner}
+    </section>`;
   }
 
-  async function fetchLegacyFile(repo, path) {
-    try {
-      const res = await fetch(`https://api.github.com/repos/${repo}/contents/${path}?ref=data`, {
-        headers: { Accept: 'application/vnd.github.raw+json' },
-        cache: 'no-store'
-      });
-      if (res.status === 404) return null;
-      if (res.ok) return JSON.parse((await res.text()).replace(/^﻿/, ''));
-    } catch (e) {}
-    // API 한도에 걸리면 raw 주소로 다시 시도
-    const res2 = await fetch(`https://raw.githubusercontent.com/${repo}/data/${path}`, { cache: 'no-store' });
-    if (res2.status === 404) return null;
-    if (!res2.ok) throw new Error(`${path} 불러오기 실패 (HTTP ${res2.status})`);
-    return JSON.parse((await res2.text()).replace(/^﻿/, ''));
-  }
-
-  async function loadLegacy() {
-    const repo = String(($('legacyRepoInput') || {}).value || admin.legacyRepo).trim()
-      .replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').replace(/^\/+|\/+$/g, '');
-    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) {
-      showToast('저장소를 "아이디/저장소명" 형식으로 입력해주세요.');
+  function renderAdmin() {
+    const body = $('adminBody');
+    if (!admin.code) {
+      body.innerHTML = `
+        <div id="adminLoginNote"></div>
+        <form id="adminLoginForm" class="space-y-2">
+          <label for="adminCodeInput" class="block font-semibold text-slate-800">관리자 코드</label>
+          <div class="flex gap-2">
+            <input id="adminCodeInput" type="password" autocomplete="off" class="flex-1 min-w-0 px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            <button type="submit" class="shrink-0 px-4 py-2 rounded-lg text-sm font-semibold bg-slate-900 text-white hover:bg-slate-800">확인</button>
+          </div>
+          <p class="text-[11px] text-slate-500">관리자는 밴드부를 관리하고, 비밀번호를 잊은 학생의 비밀번호를 초기화할 수 있어요.</p>
+        </form>
+      `;
+      renderAdminLoginNote();
+      setTimeout(() => { const i = $('adminCodeInput'); if (i && document.activeElement !== i) i.focus(); }, 30);
       return;
     }
-    admin.legacyRepo = repo;
-    admin.legacyLoading = true;
-    admin.legacyError = '';
-    admin.legacy = null;
-    renderAdmin();
-    try {
-      const paths = [{ path: 'schedule.json', fallbackName: '우리 밴드' }];
-      const listRes = await fetch(`https://api.github.com/repos/${repo}/contents/teams?ref=data`, {
-        headers: { Accept: 'application/vnd.github+json' },
-        cache: 'no-store'
+
+    const btnSm = 'px-2 py-1 rounded-md font-semibold';
+    const clubRows = admin.clubs.map((c, i) => `
+      <div class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-slate-200">
+        <div class="min-w-0 flex-1">
+          <div class="font-semibold text-sm text-slate-900 truncate">${escapeHtml(c.name)}</div>
+          <div class="text-[11px] text-slate-500">팀 ${admin.teamCounts[c.id] || 0}개</div>
+        </div>
+        <button type="button" data-admin="move-up" data-id="${c.id}" class="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-30" ${i === 0 ? 'disabled' : ''} title="위로">▲</button>
+        <button type="button" data-admin="move-down" data-id="${c.id}" class="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-30" ${i === admin.clubs.length - 1 ? 'disabled' : ''} title="아래로">▼</button>
+        <button type="button" data-admin="rename" data-id="${c.id}" class="${btnSm} text-indigo-600 hover:bg-indigo-50">이름 변경</button>
+        <button type="button" data-admin="delete" data-id="${c.id}" class="${btnSm} text-rose-600 hover:bg-rose-50">삭제</button>
+      </div>
+    `).join('');
+
+    let usersHtml = '<p class="text-[11px] text-slate-500">불러오기를 누르면 가입한 계정이 보여요.</p>';
+    if (admin.users) {
+      const f = admin.userFilter.trim().toLowerCase();
+      const list = admin.users.filter(u => !f || u.username.includes(f) || String(u.display_name).toLowerCase().includes(f));
+      usersHtml = `${admin.users.length > 8 ? `<input id="adminUserFilter" type="search" value="${escapeHtml(admin.userFilter)}" placeholder="아이디나 이름으로 찾기" class="w-full px-3 py-1.5 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500" />` : ''}
+        <div class="space-y-1.5 max-h-72 overflow-y-auto">${list.map(u => `
+          <div class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-slate-200">
+            <div class="min-w-0 flex-1">
+              <div class="font-semibold text-slate-900 truncate">${escapeHtml(u.display_name)} <span class="font-mono font-normal text-slate-500">@${escapeHtml(u.username)}</span></div>
+              <div class="text-[11px] text-slate-500">${escapeHtml(u.club_name || '밴드부 없음')} · 팀 ${u.team_count}개</div>
+            </div>
+            <button type="button" data-admin="user-reset" data-id="${u.id}" class="${btnSm} text-indigo-600 hover:bg-indigo-50">비밀번호 초기화</button>
+            <button type="button" data-admin="user-delete" data-id="${u.id}" class="${btnSm} text-rose-600 hover:bg-rose-50">삭제</button>
+          </div>`).join('') || '<div class="px-3 py-2 rounded-xl border border-dashed border-slate-300 text-slate-500">계정이 없어요.</div>'}
+        </div>`;
+    }
+
+    let teamsHtml = '<p class="text-[11px] text-slate-500">아무도 관리하지 않는 팀을 지울 때 써요. 팀은 보통 팀원들이 직접 관리해요.</p>';
+    if (admin.teams) {
+      teamsHtml = `<div class="space-y-1.5 max-h-72 overflow-y-auto">${admin.teams.map(t => `
+          <div class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-slate-200">
+            <div class="min-w-0 flex-1">
+              <div class="font-semibold text-slate-900 truncate">${escapeHtml(t.name)}</div>
+              <div class="text-[11px] text-slate-500">${escapeHtml(t.club_name)} · 멤버 ${t.member_count}명 (계정 ${t.account_count}명)</div>
+            </div>
+            <button type="button" data-admin="team-delete" data-id="${t.id}" class="${btnSm} text-rose-600 hover:bg-rose-50">삭제</button>
+          </div>`).join('') || '<div class="px-3 py-2 rounded-xl border border-dashed border-slate-300 text-slate-500">팀이 없어요.</div>'}
+        </div>`;
+    }
+
+    body.innerHTML = `
+      ${adminSection('밴드부(소속) 목록', `<span class="text-[11px] text-slate-500">${admin.clubs.length}개</span>`, `
+        <div class="space-y-1.5">${clubRows || '<div class="px-3 py-2 rounded-xl border border-dashed border-slate-300 text-slate-500">아직 밴드부가 없어요.</div>'}</div>
+        <form id="adminAddClubForm" class="flex gap-2">
+          <input id="adminNewClubName" type="text" maxlength="30" placeholder="새 밴드부 이름" class="flex-1 min-w-0 px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <button type="submit" class="shrink-0 px-3.5 py-2 rounded-lg text-sm font-semibold bg-slate-900 text-white hover:bg-slate-800">+ 추가</button>
+        </form>`)}
+      ${adminSection('계정', `<button type="button" data-admin="users-load" class="px-2.5 py-1 rounded-lg font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-100">${admin.users ? `새로고침 (${admin.users.length}명)` : '불러오기'}</button>`, usersHtml)}
+      ${adminSection('팀', `<button type="button" data-admin="teams-load" class="px-2.5 py-1 rounded-lg font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-100">${admin.teams ? `새로고침 (${admin.teams.length}개)` : '불러오기'}</button>`, teamsHtml)}
+      ${adminSection('관리자 코드 바꾸기', '', `
+        <form id="adminChangeCodeForm" class="flex gap-2">
+          <input id="adminNewCode" type="password" autocomplete="new-password" minlength="4" placeholder="새 코드 (4글자 이상)" class="flex-1 min-w-0 px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <button type="submit" class="shrink-0 px-3.5 py-2 rounded-lg text-sm font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-100">변경</button>
+        </form>`)}
+      <div class="flex justify-end">
+        <button type="button" data-admin="logout" class="px-3 py-1.5 rounded-lg font-medium text-slate-500 hover:bg-slate-100">관리자 로그아웃</button>
+      </div>
+    `;
+
+    const uf = $('adminUserFilter');
+    if (uf) {
+      uf.addEventListener('input', () => {
+        admin.userFilter = uf.value;
+        const pos = uf.selectionStart;
+        renderAdmin();
+        const again = $('adminUserFilter');
+        if (again) {
+          again.focus();
+          try { again.setSelectionRange(pos, pos); } catch (e) {}
+        }
       });
-      if (listRes.ok) {
-        const arr = await listRes.json();
-        if (Array.isArray(arr)) {
-          arr.forEach(f => {
-            if (f && f.type === 'file' && /^[A-Za-z0-9_-]+\.json$/.test(f.name)) {
-              paths.push({ path: `teams/${f.name}`, fallbackName: '가져온 팀' });
-            }
-          });
-        }
-      } else if (listRes.status !== 404) {
-        throw new Error(`저장소 확인 실패 (HTTP ${listRes.status}). 잠시 뒤 다시 시도해주세요.`);
-      }
-      const docs = await Promise.all(paths.map(async p => {
-        const parsed = await fetchLegacyFile(repo, p.path);
-        return parsed ? parseLegacyDoc(parsed, p.fallbackName) : null;
-      }));
-      admin.legacy = docs.filter(Boolean).map(d => Object.assign(d, { checked: d.members.length > 0 }));
-      await refreshLegacyDuplicates();
-    } catch (e) {
-      admin.legacyError = e.message || '불러오기 실패';
-    } finally {
-      admin.legacyLoading = false;
-      renderAdmin();
-    }
-  }
-
-  async function refreshLegacyDuplicates() {
-    admin.legacyExistingNames = new Set();
-    if (!admin.legacyTargetClub) return;
-    try {
-      const teams = await db.listTeams(admin.legacyTargetClub);
-      admin.legacyExistingNames = new Set((teams || []).map(t => t.name));
-    } catch (e) {}
-  }
-
-  async function importLegacy() {
-    if (!admin.legacy || !admin.legacyTargetClub) return;
-    const picked = admin.legacy.filter(t => t.checked && !(admin.legacyExistingNames || new Set()).has(t.name));
-    if (picked.length === 0) {
-      showToast('가져올 팀을 골라주세요.');
-      return;
-    }
-    const target = admin.clubs.find(c => c.id === admin.legacyTargetClub);
-    if (!window.confirm(`${picked.length}개 팀을 '${target ? target.name : ''}' 밴드부로 가져올까요?`)) return;
-    admin.busy = true;
-    let done = 0;
-    try {
-      for (const t of picked) {
-        const teamId = uuid();
-        await db.insertTeam({
-          id: teamId,
-          club_id: admin.legacyTargetClub,
-          name: t.name,
-          color_idx: t.colorIdx,
-          start_date: t.startDate,
-          week_count: t.weekCount
-        });
-        if (t.members.length) {
-          await db.insertMembers(t.members.map((m, i) => ({
-            id: uuid(),
-            team_id: teamId,
-            name: m.name,
-            part: m.part,
-            color_idx: m.colorIdx,
-            sort_order: i,
-            slots: m.slots
-          })));
-        }
-        done++;
-      }
-      showToast(`${done}개 팀을 가져왔어요!`);
-    } catch (e) {
-      showToast(`가져오기 중 오류 (${done}개 완료): ${e.message}`);
-    } finally {
-      admin.busy = false;
-      await refreshLegacyDuplicates();
-      afterClubsChanged();
     }
   }
 
@@ -1753,6 +1941,7 @@
     logo.style.background = color;
     logo.textContent = teamInitial(meta.name);
     $('teamNameHeading').textContent = meta.name;
+    $('btnOpenTeamEdit').classList.toggle('hidden', !canManageTeam());
     const cName = clubName(meta.clubId);
     $('teamSubheading').textContent =
       `${cName ? cName + ' · ' : ''}${state.weekCount}주 (${formatMD(state.startDate)}~${formatMD(periodEndStr(state))}) · 눌러서 팀 바꾸기`;
@@ -1765,18 +1954,22 @@
   function renderMeBanner() {
     const wrap = $('meBannerText');
     const me = getMe();
+    const who = profile ? `${PART_ICONS[profile.part] || ''} ${escapeHtml(profile.display_name)}` : '';
+    const linkCls = 'shrink-0 font-semibold text-indigo-700 underline underline-offset-2 hover:text-indigo-900';
     if (me) {
       const c = MEMBER_COLORS[me.colorIdx % MEMBER_COLORS.length];
       wrap.innerHTML = `
         <span class="w-2 h-2 rounded-full shrink-0" style="background:${c.dot}"></span>
-        <span class="truncate"><strong>${PART_ICONS[me.part] || ''} ${escapeHtml(me.name)}</strong>님으로 들어와 있어요.</span>
-        <button type="button" data-act="change-me" class="shrink-0 font-semibold text-indigo-700 underline underline-offset-2 hover:text-indigo-900">바꾸기</button>
+        <span class="truncate"><strong>${who}</strong>님으로 로그인했어요.</span>
+        <button type="button" data-act="open-profile" class="${linkCls}">내 정보</button>
+        <button type="button" data-act="logout" class="${linkCls}">로그아웃</button>
       `;
     } else {
       wrap.innerHTML = `
         <span class="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
-        <span class="truncate">둘러보는 중이에요. 내 시간을 입력하려면</span>
-        <button type="button" data-act="change-me" class="shrink-0 font-semibold text-indigo-700 underline underline-offset-2 hover:text-indigo-900">나는 누구? 고르기</button>
+        <span class="truncate"><strong>${who}</strong>님, 이 팀에는 아직 참여하지 않았어요.</span>
+        <button type="button" data-act="join-team" class="shrink-0 px-2 py-0.5 rounded-md bg-indigo-600 text-white font-semibold hover:bg-indigo-700">참여하기</button>
+        <button type="button" data-act="logout" class="${linkCls}">로그아웃</button>
       `;
     }
   }
@@ -1896,13 +2089,14 @@
     const includedCount = getIncludedMembers().length;
     badge.textContent = `${state.members.length}명 (비교 ${includedCount}명)`;
     const me = getMe();
+    $('addMemberForm').classList.toggle('hidden', !me);
 
     container.innerHTML = '';
     if (state.members.length === 0) {
       container.innerHTML = `
         <div class="w-full p-3 rounded-xl bg-slate-50 border border-dashed border-slate-300 text-xs text-slate-500 leading-relaxed">
-          <strong class="text-slate-700">${escapeHtml(teamMeta.name)}</strong> 팀에 아직 멤버가 없습니다. 위 배너의 <strong>나는 누구?</strong>에서 내 이름을 추가하거나, 오른쪽에서 멤버를 추가해주세요.
-          팀원들에게는 <strong>이 팀 링크 복사</strong>로 링크를 보내면 각자 입력할 수 있어요.
+          <strong class="text-slate-700">${escapeHtml(teamMeta.name)}</strong> 팀에 아직 멤버가 없어요. 위 배너의 <strong>참여하기</strong>를 눌러 첫 멤버가 되어보세요.
+          팀원들에게는 <strong>이 팀 링크 복사</strong>로 링크를 보내면 각자 로그인해서 참여할 수 있어요.
         </div>
       `;
       return;
@@ -1949,6 +2143,7 @@
         <span>${PART_ICONS[m.part] || '🎵'}</span>
         <span class="font-semibold">${escapeHtml(m.name)}</span>
         ${isMe ? '<span class="px-1 py-px rounded bg-indigo-600 text-white text-[9px] font-bold">나</span>' : ''}
+        ${m.userId ? '' : '<span class="px-1 py-px rounded bg-slate-200 text-slate-600 text-[9px] font-bold" title="가입하지 않은 멤버예요. 팀원 누구나 대신 입력할 수 있어요.">게스트</span>'}
         <span class="text-[11px] text-slate-400 font-normal">(${weekHours}h${state.weekCount > 1 ? ` / 전체 ${totalHours}h` : ''})</span>
       `;
       btnSelect.addEventListener('click', () => {
@@ -1976,7 +2171,10 @@
       btnDel.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>`;
       btnDel.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (!window.confirm(`'${m.name}' 멤버를 이 팀에서 삭제할까요?\n입력한 가능 시간도 함께 지워지고, 팀원 모두의 화면에서 사라져요.`)) return;
+        const confirmMsg = isMe
+          ? `'${teamMeta.name}' 팀에서 나갈까요?\n이 팀에 입력한 내 가능 시간도 함께 지워져요.`
+          : `'${m.name}' 게스트를 이 팀에서 삭제할까요?\n입력한 가능 시간도 함께 지워지고, 팀원 모두의 화면에서 사라져요.`;
+        if (!window.confirm(confirmMsg)) return;
         const removedId = m.id;
         const removedName = m.name;
         localEditSeq++;
@@ -1988,14 +2186,18 @@
         }
         saveState();
         renderAll();
-        showToast(`'${removedName}' 멤버를 삭제했습니다.`);
+        showToast(isMe ? `'${teamMeta.name}' 팀에서 나왔어요.` : `'${removedName}' 게스트를 삭제했습니다.`);
         enqueueWrite(() => db.deleteMember(removedId));
       });
 
       card.appendChild(chk);
       card.appendChild(btnSelect);
-      card.appendChild(btnEdit);
-      card.appendChild(btnDel);
+      if (canEditMember(m)) {
+        btnEdit.title = isMe ? '내 파트 수정' : '이름/파트 수정';
+        btnDel.title = isMe ? '이 팀에서 나가기' : '게스트 삭제';
+        card.appendChild(btnEdit);
+        card.appendChild(btnDel);
+      }
       container.appendChild(card);
     });
   }
@@ -2043,6 +2245,18 @@
       return;
     }
 
+    if (!canEditMember(activeMember)) {
+      contextBar.innerHTML = `
+        <div class="flex items-center gap-2 flex-wrap text-slate-600">
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-semibold bg-slate-100 text-slate-700">👀 ${escapeHtml(activeMember.name)}의 시간 보기</span>
+          <span>${activeMember.userId ? '본인만 고칠 수 있어요.' : '팀에 참여하면 게스트 시간을 대신 입력할 수 있어요.'}</span>
+        </div>
+        <button id="btnContextMine" type="button" class="px-2.5 py-1 rounded-md bg-indigo-600 text-white font-semibold hover:bg-indigo-700">${me ? '내 시간 입력하기' : '이 팀에 참여하기'}</button>
+      `;
+      $('btnContextMine').addEventListener('click', switchToMyEdit);
+      return;
+    }
+
     const color = MEMBER_COLORS[activeMember.colorIdx % MEMBER_COLORS.length];
     const editingOther = me && me.id !== activeMember.id;
     contextBar.innerHTML = `
@@ -2052,7 +2266,7 @@
           <span>${escapeHtml(activeMember.name)}</span>
           <span>입력 중</span>
         </span>
-        ${editingOther ? `<button id="btnBackToMe" type="button" class="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-800 font-semibold hover:bg-amber-100">내가 아니에요 → ${escapeHtml(me.name)}(나)로</button>` : ''}
+        ${editingOther ? `<button id="btnBackToMe" type="button" class="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-800 font-semibold hover:bg-amber-100">게스트 대신 입력 중 · 내 시간으로</button>` : ''}
         <span class="text-slate-500"><strong class="text-slate-700">${weekLabel}</strong> 칸을 클릭하거나 드래그해서 칠하세요.</span>
       </div>
       <div class="flex items-center gap-1.5 flex-wrap">
@@ -2097,14 +2311,19 @@
 
   function switchToMyEdit() {
     const me = getMe();
-    if (me) state.activeMemberId = me.id;
+    if (!me) {
+      if (state && authUser) {
+        flushPendingMemberSync();
+        openOnboarding('join', { teamId: state.teamId });
+        showToast('이 팀에 참여하면 내 시간을 입력할 수 있어요.');
+      }
+      return;
+    }
+    state.activeMemberId = me.id;
     state.mode = 'edit';
     state.highlightedSlots = [];
     saveState();
     renderAll();
-    if (!me && state.members.length > 0) {
-      showToast('내 이름을 고르면 바로 내 시간을 입력할 수 있어요.');
-    }
   }
 
   function copyWeekPatternToAllWeeks(member) {
@@ -2232,7 +2451,7 @@
           e.preventDefault();
           state.inspectedSlot = slotKey;
           const member = getActiveMember();
-          if (state.mode === 'edit' && member) {
+          if (state.mode === 'edit' && member && canEditMember(member)) {
             isDragging = true;
             dragPaintValue = !member.slots.includes(slotKey);
             applySlotChange(member, slotKey, dragPaintValue);
@@ -2508,12 +2727,16 @@
 
   function openRenameModal(memberId) {
     const m = state.members.find(x => x.id === memberId);
-    if (!m) return;
+    if (!m || !canEditMember(m)) return;
+    const own = !!m.userId;
     renameTargetId = memberId;
     $('renameInput').value = m.name;
+    $('renameInput').disabled = own;
+    $('renameInput').classList.toggle('bg-slate-100', own);
+    $('renameHint').classList.toggle('hidden', !own);
     $('renamePartSelect').value = m.part;
     showModal('renameModal');
-    $('renameInput').focus();
+    (own ? $('renamePartSelect') : $('renameInput')).focus();
   }
 
   function closeRenameModal() {
@@ -2522,8 +2745,12 @@
   }
 
   function openResetModal() {
+    if (!getMe()) {
+      showToast('이 팀에 참여하면 내 시간을 비울 수 있어요.');
+      return;
+    }
     $('resetTeamName').textContent = `'${teamMeta.name}' 팀`;
-    $('btnClearWeekSlots').textContent = `${state.viewWeek + 1}주차(${weekRangeText(state.viewWeek)}) 시간만 비우기`;
+    $('btnClearWeekSlots').textContent = `${state.viewWeek + 1}주차(${weekRangeText(state.viewWeek)}) 내 시간만 비우기`;
     showModal('resetModal');
   }
 
@@ -2533,6 +2760,10 @@
 
   function openTeamEditModal() {
     if (!teamMeta) return;
+    if (!canManageTeam()) {
+      showToast('팀 멤버만 팀 정보를 바꿀 수 있어요.');
+      return;
+    }
     editTeamColorIdx = teamMeta.colorIdx;
     $('teamEditNameInput').value = teamMeta.name;
     renderTeamColorSwatches();
@@ -2597,6 +2828,10 @@
   }
 
   function openPeriodModal() {
+    if (!canManageTeam()) {
+      showToast('팀 멤버만 합주 기간을 바꿀 수 있어요.');
+      return;
+    }
     $('periodStartInput').value = state.startDate;
     populateWeekCountSelect(state.weekCount);
     $('periodShiftSlots').checked = false;
@@ -2678,7 +2913,7 @@
       const slotKey = target.dataset.slot;
       state.inspectedSlot = slotKey;
       const activeMember = getActiveMember();
-      if (state.mode === 'edit' && activeMember) {
+      if (state.mode === 'edit' && activeMember && canEditMember(activeMember)) {
         e.preventDefault();
         isDragging = true;
         dragPaintValue = !activeMember.slots.includes(slotKey);
@@ -2703,39 +2938,52 @@
     window.addEventListener('touchend', endTouchPaint);
     window.addEventListener('touchcancel', endTouchPaint);
 
-    // --- 온보딩 ---
-    $('onboarding').addEventListener('click', (e) => {
+    // --- 로그인 · 온보딩 ---
+    $('onboarding').addEventListener('click', async (e) => {
       const el = e.target.closest('[data-act]');
       if (!el) return;
       const act = el.dataset.act;
-      if (act === 'pick-club') {
-        session.clubId = el.dataset.id;
-        saveSession();
-        loadObTeams(el.dataset.id);
+      if (act === 'auth-tab') {
+        ob.authTab = el.dataset.tab === 'signup' ? 'signup' : 'login';
+        ob.error = '';
+        renderOnboarding();
+        const first = $(ob.authTab === 'signup' ? 'obSuId' : 'obLoginId');
+        if (first) first.focus();
+      } else if (act === 'pick-club') {
+        if (!authUser) return;
+        try {
+          await db.updateProfile(authUser.id, { club_id: el.dataset.id });
+          profile = Object.assign({}, profile, { club_id: el.dataset.id });
+          loadObTeams(el.dataset.id);
+        } catch (err) {
+          showToast('저장 실패: ' + err.message);
+        }
       } else if (act === 'pick-team') {
-        loadObMe(el.dataset.id, { autoEnter: true });
-      } else if (act === 'pick-me') {
-        if (!ob.teamRow) return;
-        const rows = ob.teamMembers.map(memberToRow);
-        const m = ob.teamMembers.find(x => x.id === el.dataset.id);
-        enterTeam(ob.teamRow, rows, el.dataset.id);
-        if (m) showToast(`${m.name}님, 가능한 시간을 칠해주세요!`);
+        loadObJoin(el.dataset.id, { autoEnter: true });
+      } else if (act === 'join-new') {
+        obJoinNew();
+      } else if (act === 'claim') {
+        obClaim(el.dataset.id);
       } else if (act === 'browse-only') {
         if (!ob.teamRow) return;
-        enterTeam(ob.teamRow, ob.teamMembers.map(memberToRow), null);
+        enterTeam(ob.teamRow, ob.teamMembers.map(memberToRow));
         state.mode = 'overlap';
         saveState();
         renderAll();
-      } else if (act === 'ob-back-club') {
-        loadObClubs();
       } else if (act === 'ob-back-team') {
-        loadObTeams(ob.clubId || session.clubId);
+        loadObTeams(ob.clubId || (profile && profile.club_id));
+      } else if (act === 'ob-home') {
+        goHome();
       } else if (act === 'ob-retry') {
-        if (ob.step === 'team') loadObTeams(ob.clubId);
-        else if (ob.step === 'me' && ob.teamRow) loadObMe(ob.teamRow.id);
-        else loadObClubs();
+        if (ob.step === 'auth' && authUser) afterLogin(authUser);
+        else if (ob.step === 'auth') loadObAuth();
+        else if (ob.step === 'team') loadObTeams(ob.clubId);
+        else if (ob.step === 'join' && ob.teamRow) loadObJoin(ob.teamRow.id, { autoEnter: true });
+        else goHome();
       } else if (act === 'ob-close') {
         if (state) closeOnboarding();
+      } else if (act === 'open-profile') {
+        openProfileModal();
       } else if (act === 'open-admin') {
         openAdmin();
       }
@@ -2743,34 +2991,55 @@
 
     $('onboarding').addEventListener('submit', (e) => {
       e.preventDefault();
-      if (e.target.id === 'obCreateTeamForm') {
-        obCreateTeam($('obNewTeamName').value);
-      } else if (e.target.id === 'obAddMeForm') {
-        obAddMe($('obMyName').value, $('obMyPart').value);
-      }
+      const id = e.target.id;
+      if (id === 'obLoginForm') doLogin(e.target);
+      else if (id === 'obSignupForm') doSignup(e.target);
+      else if (id === 'obCreateTeamForm') obCreateTeam($('obNewTeamName').value);
     });
 
     $('btnOpenTeamPicker').addEventListener('click', () => {
       flushPendingMemberSync();
-      openOnboarding('team', { clubId: teamMeta ? teamMeta.clubId : session.clubId });
+      openOnboarding('team', { clubId: teamMeta ? teamMeta.clubId : (profile && profile.club_id) });
     });
 
     $('meBanner').addEventListener('click', (e) => {
-      const el = e.target.closest('[data-act="change-me"]');
+      const el = e.target.closest('[data-act]');
       if (!el || !state) return;
-      flushPendingMemberSync();
-      openOnboarding('me', { teamId: state.teamId });
+      const act = el.dataset.act;
+      if (act === 'open-profile') {
+        openProfileModal();
+      } else if (act === 'logout') {
+        logout();
+      } else if (act === 'join-team') {
+        flushPendingMemberSync();
+        openOnboarding('join', { teamId: state.teamId });
+      }
     });
 
     $('btnCopyTeamLink').addEventListener('click', () => {
       if (!state) return;
-      copyText(teamLinkUrl(), `'${teamMeta.name}' 팀 링크를 복사했어요! 단톡방에 붙여넣으면 팀원이 바로 들어와요.`);
+      copyText(teamLinkUrl(), `'${teamMeta.name}' 팀 링크를 복사했어요! 단톡방에 붙여넣으면 팀원이 로그인 후 바로 이 팀으로 와요.`);
     });
 
     $('btnSyncStatus').addEventListener('click', () => {
       flushPendingMemberSync();
       refreshTeam(false);
     });
+
+    // --- 내 정보 ---
+    $('btnCloseProfileModal').addEventListener('click', () => hideModal('profileModal'));
+    $('profileModal').addEventListener('click', (e) => {
+      if (e.target.id === 'profileModal') hideModal('profileModal');
+    });
+    $('profileForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      saveProfile();
+    });
+    $('passwordForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      changePassword();
+    });
+    $('btnLogout').addEventListener('click', logout);
 
     // --- 관리자 ---
     $('btnFooterAdmin').addEventListener('click', openAdmin);
@@ -2780,16 +3049,12 @@
         closeAdmin();
         return;
       }
-      const cb = e.target.closest('[data-legacy-idx]');
-      if (cb && admin.legacy) {
-        const item = admin.legacy[Number(cb.dataset.legacyIdx)];
-        if (item) item.checked = cb.checked;
-        return;
-      }
       const el = e.target.closest('[data-admin]');
       if (!el || admin.busy) return;
       const act = el.dataset.admin;
       const club = admin.clubs.find(c => c.id === el.dataset.id);
+      const user = admin.users ? admin.users.find(u => u.id === el.dataset.id) : null;
+      const team = admin.teams ? admin.teams.find(t => t.id === el.dataset.id) : null;
       try {
         if (act === 'rename' && club) {
           const name = window.prompt('새 밴드부 이름', club.name);
@@ -2810,33 +3075,45 @@
             }
           }
           await adminCall('admin_delete_club', { p_id: club.id });
-          if (session.clubId === club.id) {
-            session.clubId = null;
-            saveSession();
-          }
+          if (profile && profile.club_id === club.id) profile.club_id = null;
           showToast(`'${club.name}' 밴드부를 삭제했어요.`);
           afterClubsChanged();
           if (state && teamMeta && teamMeta.clubId === club.id) handleTeamDeleted();
         } else if ((act === 'move-up' || act === 'move-down') && club) {
           await adminCall('admin_move_club', { p_id: club.id, p_direction: act === 'move-up' ? -1 : 1 });
           afterClubsChanged();
+        } else if (act === 'users-load') {
+          await loadAdminUsers();
+        } else if (act === 'teams-load') {
+          await loadAdminTeams();
+        } else if (act === 'user-reset' && user) {
+          const pw = window.prompt(`'${user.display_name}' (@${user.username})의 새 비밀번호를 정해주세요. (6자 이상)\n\n바꾼 비밀번호는 본인에게 직접 알려주세요.`);
+          if (pw === null) return;
+          if (pw.length < 6) {
+            showToast('비밀번호는 6자 이상이어야 해요.');
+            return;
+          }
+          await adminCall('admin_reset_password', { p_user_id: user.id, p_new_password: pw });
+          showToast(`@${user.username}의 비밀번호를 바꿨어요.`);
+        } else if (act === 'user-delete' && user) {
+          if (!window.confirm(`'${user.display_name}' (@${user.username}) 계정을 삭제할까요?\n\n이 사람이 들어가 있던 팀에서는 시간이 그대로 남고 '게스트'가 돼요.`)) return;
+          await adminCall('admin_delete_user', { p_user_id: user.id });
+          showToast(`@${user.username} 계정을 삭제했어요.`);
+          await loadAdminUsers();
+          if (authUser && authUser.id === user.id) handleSignedOut();
+          else if (state) refreshTeam(true);
+        } else if (act === 'team-delete' && team) {
+          if (!window.confirm(`'${team.name}' (${team.club_name}) 팀을 삭제할까요?\n\n멤버 ${team.member_count}명과 입력된 모든 시간이 영구 삭제돼요.`)) return;
+          await adminCall('admin_delete_team', { p_team_id: team.id });
+          showToast(`'${team.name}' 팀을 삭제했어요.`);
+          await loadAdminClubs();
+          await loadAdminTeams();
+          if (state && state.teamId === team.id) handleTeamDeleted();
         } else if (act === 'logout') {
           adminLogout();
-        } else if (act === 'legacy-load') {
-          await loadLegacy();
-        } else if (act === 'legacy-import') {
-          await importLegacy();
         }
       } catch (err) {
         showToast(err.message);
-      }
-    });
-
-    $('adminModal').addEventListener('change', async (e) => {
-      if (e.target.id === 'legacyTargetClub') {
-        admin.legacyTargetClub = e.target.value;
-        await refreshLegacyDuplicates();
-        renderAdmin();
       }
     });
 
@@ -2915,7 +3192,6 @@
       try {
         await writeQueue;
         await db.deleteTeam(teamId);
-        delete session.me[teamId];
         session.teamId = null;
         saveSession();
         removeKey(sessionStorage, UI_PREFIX + teamId);
@@ -2997,6 +3273,10 @@
     // --- 멤버 추가 ---
     $('addMemberForm').addEventListener('submit', (e) => {
       e.preventDefault();
+      if (!getMe()) {
+        showToast('이 팀에 참여한 뒤 게스트를 추가할 수 있어요.');
+        return;
+      }
       const nameInput = $('newMemberName');
       const partSelect = $('newMemberPart');
       const name = cleanName(nameInput.value, 16);
@@ -3015,6 +3295,7 @@
       }
       const newMember = {
         id: uuid(),
+        userId: null,
         name,
         part: normalizePart(partSelect.value),
         colorIdx,
@@ -3041,7 +3322,7 @@
         slots: []
       }]));
       renderAll();
-      showToast(`'${name}' 멤버를 추가했습니다. 시간을 선택해보세요!`);
+      showToast(`'${name}' 게스트를 추가했어요. 대신 시간을 칠해줄 수 있어요.`);
     });
 
     // --- 시간대 · 최소 인원 ---
@@ -3109,29 +3390,31 @@
       if (e.target.id === 'resetModal') closeResetModal();
     });
     $('btnClearWeekSlots').addEventListener('click', () => {
+      const me = getMe();
+      if (!me) return;
       const dateSet = new Set(getWeekDates(state.viewWeek));
-      state.members.forEach(m => {
-        m.slots = m.slots.filter(k => {
-          const p = parseSlotKey(k);
-          return !p || !dateSet.has(p.date);
-        });
+      me.slots = me.slots.filter(k => {
+        const p = parseSlotKey(k);
+        return !p || !dateSet.has(p.date);
       });
       state.highlightedSlots = [];
       saveState();
-      syncAllMembersSlots();
+      scheduleMemberSync(me);
       renderAll();
       closeResetModal();
-      showToast(`${state.viewWeek + 1}주차 시간을 모두 비웠습니다.`);
+      showToast(`${state.viewWeek + 1}주차 내 시간을 비웠어요.`);
     });
     $('btnClearAllSlots').addEventListener('click', () => {
-      if (!window.confirm(`'${teamMeta.name}' 팀 모든 멤버의 모든 주차 시간을 지울까요? 되돌릴 수 없어요.`)) return;
-      state.members.forEach(m => { m.slots = []; });
+      const me = getMe();
+      if (!me) return;
+      if (!window.confirm(`'${teamMeta.name}' 팀에 입력한 내 모든 주차 시간을 지울까요? 되돌릴 수 없어요.`)) return;
+      me.slots = [];
       state.highlightedSlots = [];
       saveState();
-      syncAllMembersSlots();
+      scheduleMemberSync(me);
       renderAll();
       closeResetModal();
-      showToast('모든 주차 · 모든 멤버의 선택 시간을 비웠습니다.');
+      showToast('내 모든 주차 시간을 비웠어요.');
     });
 
     // --- 멤버 이름 수정 ---
@@ -3142,8 +3425,8 @@
     $('renameForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const m = state.members.find(x => x.id === renameTargetId);
-      const newName = cleanName($('renameInput').value, 16);
-      if (m && newName) {
+      const newName = m && m.userId ? m.name : cleanName($('renameInput').value, 16);
+      if (m && newName && canEditMember(m)) {
         m.name = newName;
         m.part = normalizePart($('renamePartSelect').value);
         saveState();
@@ -3157,7 +3440,7 @@
     // Esc 로 모달 닫기
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
-      ['renameModal', 'resetModal', 'periodModal', 'teamEditModal'].forEach(id => {
+      ['renameModal', 'resetModal', 'periodModal', 'teamEditModal', 'profileModal'].forEach(id => {
         if (!$(id).classList.contains('hidden')) hideModal(id);
       });
       if (!$('adminModal').classList.contains('hidden')) closeAdmin();
@@ -3196,11 +3479,11 @@
     $('setupScreen').classList.remove('hidden');
   }
 
-  function boot() {
+  async function boot() {
     const fromOldLink = cleanupObsolete();
     bindEvents();
 
-    if (!SUPABASE_URL || !SUPABASE_KEY) {
+    if (!SUPABASE_URL || !SUPABASE_KEY || !LOGIN_EMAIL_DOMAIN) {
       showSetupScreen();
       return;
     }
@@ -3209,42 +3492,31 @@
       return;
     }
     sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: AUTH_STORAGE_KEY }
+    });
+    // 다른 탭에서 로그아웃했거나, 계정이 삭제되어 로그인이 끊긴 경우
+    sb.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') setTimeout(handleSignedOut, 0);
     });
 
     if (fromOldLink) {
-      setTimeout(() => showToast('예전 초대 링크예요. 이제는 밴드부와 팀을 골라서 들어오면 돼요.'), 300);
+      setTimeout(() => showToast('예전 초대 링크예요. 이제는 로그인하고 밴드부와 팀을 골라서 들어오면 돼요.'), 300);
     }
 
-    const linkTeamId = parseHashTeamId();
     // 팀 링크로 들어와도 주소창에는 팀 주소를 남기지 않아요. (주소를 복사해 보내면 누구든 첫 페이지부터)
+    pendingTeamId = parseHashTeamId();
     cleanAddressBar();
-    const targetTeamId = linkTeamId || session.teamId;
-    if (!targetTeamId) {
-      openOnboarding(session.clubId ? 'team' : 'club', { clubId: session.clubId });
-      return;
-    }
 
-    // 같은 탭에서 새로고침한 경우: 보던 팀을 저장된 내용으로 먼저 보여주고, 서버에서 최신으로 바꿉니다.
-    const prefs = readJson(sessionStorage, UI_PREFIX + targetTeamId);
-    const meId = session.me[targetTeamId];
-    const cached = prefs && prefs.cache && prefs.cache.team && prefs.cache.team.id === targetTeamId ? prefs.cache : null;
-    const cachedMembers = cached && Array.isArray(cached.members) ? cached.members : null;
-    const rememberedHere = cachedMembers && (cachedMembers.some(m => m.id === meId) || (!linkTeamId && session.teamId === targetTeamId));
-    if (cached && rememberedHere) {
-      enterTeam(cached.team, cached.members);
-      lastSyncTime = null;
-      db.listClubs().then(rows => {
-        clubs = rows || [];
-        if (state) renderHeader();
-      }).catch(() => {});
-      refreshTeam(true).then(ok => {
-        if (!ok && state && !lastSyncTime) renderStatus();
-      });
+    let current = null;
+    try {
+      const { data } = await sb.auth.getSession();
+      current = data && data.session ? data.session : null;
+    } catch (e) {}
+    if (!current) {
+      openOnboarding('auth');
       return;
     }
-    openOnboarding('me', { teamId: targetTeamId, autoEnter: true });
+    await afterLogin(current.user);
   }
-
   boot();
 })();
