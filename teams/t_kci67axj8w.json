@@ -1,13 +1,13 @@
 {
   "version": 2,
-  "updatedAt": "2026-11-23T06:35:35.438Z",
+  "updatedAt": "2026-11-23T06:35:46.603Z",
   "team": {
     "id": "t_kci67axj8w",
     "name": "똥펑크",
     "colorIdx": 1,
     "startDate": "2026-11-23",
     "weekCount": 4,
-    "updatedAt": "2026-11-23T06:35:35.438Z"
+    "updatedAt": "2026-11-23T06:35:46.603Z"
   },
   "members": {
     "m_1795337704826": {
@@ -223,9 +223,13 @@
       "name": "석규",
       "part": "베이스",
       "colorIdx": 5,
-      "order": 5,
-      "slots": [],
-      "updatedAt": "2026-11-23T06:35:32.660Z"
+      "order": 4,
+      "slots": [
+        "2026-11-29T9",
+        "2026-11-29T10",
+        "2026-11-29T11"
+      ],
+      "updatedAt": "2026-11-23T06:35:46.096Z"
     }
   }
 }
