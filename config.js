@@ -9,8 +9,8 @@
 //    공개 키는 원래 웹사이트에 들어가도 되는 키이고, 실제 권한은 supabase/schema.sql 의 보안 규칙이 막아줍니다.
 // =============================================================================
 window.BAND_SCHEDULER_CONFIG = {
-  supabaseUrl: '',
-  supabaseKey: '',
+  supabaseUrl: 'https://wndwnzsoespfejdqiiea.supabase.co',
+  supabaseKey: 'sb_publishable_9tggPHEDb8s2lcXgAXzOcQ_v0ltOnqq',
 
   // 예전 GitHub 동기화 버전의 데이터(data 브랜치)를 가져올 저장소. 관리자 화면에서 한 번만 씁니다.
   legacyGithubRepo: 'iseoggyu350-cpu/band-scheduler'
