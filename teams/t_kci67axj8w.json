@@ -1,13 +1,13 @@
 {
   "version": 2,
-  "updatedAt": "2026-11-23T04:02:17.653Z",
+  "updatedAt": "2026-11-23T04:02:19.818Z",
   "team": {
     "id": "t_kci67axj8w",
     "name": "똥펑크",
     "colorIdx": 1,
     "startDate": "2026-11-23",
     "weekCount": 4,
-    "updatedAt": "2026-11-23T04:02:17.653Z"
+    "updatedAt": "2026-11-23T04:02:19.818Z"
   },
   "members": {
     "m_1795337704826": {
@@ -126,7 +126,7 @@
       "slots": [
         "2026-11-30T22"
       ],
-      "updatedAt": "2026-11-23T04:02:16.902Z"
+      "updatedAt": "2026-11-23T04:02:17.394Z"
     }
   }
 }
